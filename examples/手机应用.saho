@@ -1,0 +1,9 @@
+# 手机端应用（v1.7 应用模块）：同一份页面，监听局域网，手机连同一 Wi-Fi 打开即可。
+# 运行：./sahou.exe run examples/手机应用.saho  —— 按提示用手机浏览器打开打印的网址。
+模板 = "<!doctype html><html><head><meta charset='utf-8'>"
+模板 = 模板 + "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+模板 = 模板 + "<title>[[标题]]</title></head><body><h1>[[标题]]</h1>"
+模板 = 模板 + "<p>在手机浏览器里选\"添加到主屏幕\"，下次就能像 App 一样全屏启动。</p>"
+模板 = 模板 + "</body></html>"
+写入文件("应用页面/手机.html", 网页.渲染(模板, {"标题": "你好，手机"}))
+应用.手机("应用页面")

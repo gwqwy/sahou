@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>卅 sahou · 网页演示</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --brand: #4F46E5;
+      --brand2: #0EA5E9;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --card: #ffffff;
+      --bg: #f1f5f9;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+    header {
+      background: linear-gradient(135deg, var(--brand), var(--brand2));
+      color: #fff;
+      padding: 40px 20px 48px;
+      text-align: center;
+    }
+    header .logo { width: 72px; height: 72px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+    header h1 { font-size: 34px; margin: 14px 0 6px; letter-spacing: 2px; }
+    header p { opacity: .92; font-size: 15px; }
+    header .tag {
+      display: inline-block; margin-top: 12px; padding: 4px 14px;
+      border: 1px solid rgba(255,255,255,.5); border-radius: 999px; font-size: 13px;
+    }
+    main {
+      max-width: 1000px; margin: -28px auto 40px; padding: 0 16px;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px;
+    }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+      padding: 20px; box-shadow: 0 4px 16px rgba(15,23,42,.06);
+    }
+    .card h2 { font-size: 17px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .card h2 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--brand); }
+    .big { font-size: 52px; font-weight: 700; text-align: center; margin: 6px 0 14px; font-variant-numeric: tabular-nums; }
+    .row { display: flex; gap: 8px; justify-content: center; }
+    button {
+      font: inherit; padding: 8px 16px; border-radius: 9px; border: 1px solid var(--line);
+      background: #f8fafc; cursor: pointer; transition: transform .05s, background .15s;
+    }
+    button:hover { background: #eef2ff; }
+    button:active { transform: scale(.96); }
+    button.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+    button.primary:hover { background: #4338ca; }
+    button.danger { color: #e11d48; border-color: #fecdd3; background: #fff1f2; }
+    form { display: flex; gap: 8px; }
+    input {
+      flex: 1; font: inherit; padding: 9px 12px; border: 1px solid var(--line);
+      border-radius: 9px; outline: none;
+    }
+    input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(79,70,229,.15); }
+    ul { list-style: none; padding: 0; margin: 12px 0 0; }
+    li {
+      display: flex; align-items: center; gap: 8px; justify-content: space-between;
+      padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; margin-top: 8px;
+      background: #f8fafc;
+    }
+    li span { cursor: pointer; }
+    .hint { color: var(--muted); font-size: 13px; margin-top: 10px; text-align: center; }
+    .quote { font-size: 17px; text-align: center; margin: 10px 0 16px; min-height: 48px;
+             display: flex; align-items: center; justify-content: center; color: #334155; }
+    footer { text-align: center; color: var(--muted); font-size: 13px; padding: 0 0 36px; }
+    footer code { background: #e2e8f0; padding: 2px 7px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <img class="logo" src="favicon.svg" alt="sahou 图标">
+    <h1>卅 · sahou</h1>
+    <p>比 Python 更简单一点的入门语言 —— 这一个页面，就是它写的前端</p>
+    <span class="tag">页面里的全部逻辑都是 sahou，由 sahou build 转译成 JavaScript</span>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2><span class="dot"></span>计数器</h2>
+      <div class="big" id="计数显示">0</div>
+      <div class="row">
+        <button id="减一">− 1</button>
+        <button id="清零">清零</button>
+        <button id="加一" class="primary">+ 1</button>
+      </div>
+      <p class="hint">状态放在字典里，函数读写共享对象</p>
+    </section>
+
+    <section class="card">
+      <h2><span class="dot"></span>待办清单</h2>
+      <form id="待办表单">
+        <input id="待办输入" placeholder="写一件事，回车添加…" autocomplete="off">
+        <button id="添加" class="primary" type="submit">添加</button>
+      </form>
+      <ul id="待办列表"></ul>
+      <p class="hint" id="空提示">还没有待办，写一条试试</p>
+      <p class="hint" id="条数显示"></p>
+    </section>
+
+    <section class="card">
+      <h2><span class="dot"></span>随机金句</h2>
+      <p class="quote" id="金句">…</p>
+      <div class="row">
+        <button id="换一句" class="primary">换一句</button>
+      </div>
+      <p class="hint">来自 随机 模块的 挑()</p>
+    </section>
+  </main>
+
+  <footer>本页逻辑 100% 由 <code>sahou</code> 编写 · <code>sahou build 演示.saho -o 演示.js</code></footer>
+
+  <script src="演示.js"></script>
+</body>
+</html>

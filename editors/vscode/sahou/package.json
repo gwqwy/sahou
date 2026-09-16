@@ -1,0 +1,91 @@
+{
+  "name": "sahou-language",
+  "displayName": "sahou（卅）语言支持",
+  "description": "sahou 编程语言：语法高亮、文件识别、一键运行、实时语法诊断（基于 sahou lsp）",
+  "version": "0.1.4",
+  "publisher": "sahou",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:sahou"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "sahou",
+        "aliases": [
+          "sahou",
+          "卅"
+        ],
+        "extensions": [
+          ".saho"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "sahou",
+        "scopeName": "source.sahou",
+        "path": "./syntaxes/sahou.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "sahou",
+        "path": "./snippets/sahou.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "sahou.run",
+        "title": "运行当前 sahou 文件",
+        "category": "sahou",
+        "icon": "$(play)"
+      },
+      {
+        "command": "sahou.restartLsp",
+        "title": "重启 sahou 语言服务",
+        "category": "sahou"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "sahou.run",
+        "key": "alt+s",
+        "when": "editorLangId == sahou"
+      }
+    ],
+    "configuration": {
+      "title": "sahou",
+      "properties": {
+        "sahou.path": {
+          "type": "string",
+          "default": "sahou",
+          "description": "sahou 可执行文件的路径（例如 E:\\文件\\代码系统\\sahou.exe）"
+        },
+        "sahou.diagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "启用实时语法诊断（需要 sahou.path 指向支持 lsp 子命令的版本）"
+        }
+      }
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "command": "sahou.run",
+          "group": "navigation",
+          "when": "editorLangId == sahou"
+        }
+      ]
+    }
+  },
+  "dependencies": {}
+}

@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "sahou: 运行当前文件",
+      "type": "shell",
+      "command": "${workspaceFolder}/sahou.exe run ${file}",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "sahou: 转译当前文件",
+      "type": "shell",
+      "command": "${workspaceFolder}/sahou.exe build ${file} -o ${fileDirname}/${fileBasenameNoExtension}.js",
+      "problemMatcher": []
+    },
+    {
+      "label": "sahou: 全部测试",
+      "type": "shell",
+      "command": "bash tests/run.sh && bash tests/net.sh && bash tests/build.sh && bash tests/modules.sh && bash tests/stdlib.sh && bash tests/packages.sh",
+      "problemMatcher": []
+    }
+  ]
+}

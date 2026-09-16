@@ -1,0 +1,9 @@
+名字 = "卅"
+print("你好, {名字}!")
+print("花括号 \{这样\}")
+print(长度("卅语言"))
+print(转大写("abc"))
+print(修剪("  hi  ") + "|")
+print(分割("a;b", 分隔: ";"))
+print(替换("aaa", "a", "b"))
+print(包含("hello", "ell"))

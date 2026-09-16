@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>响应式价格计算 · sahou.wasm 直接运行</title>
+  <link rel="icon" href="../网页/favicon.svg" type="image/svg+xml">
+  <style>
+    body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #f1f5f9;
+           display: flex; justify-content: center; padding-top: 60px; min-height: 100vh; margin: 0; }
+    .card { background: #fff; border-radius: 16px; padding: 32px 40px;
+            box-shadow: 0 8px 30px rgba(15,23,42,.12); width: 380px; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    .sub { color: #64748b; font-size: 13px; margin-bottom: 22px; }
+    label { display: block; font-size: 13px; color: #475569; margin: 14px 0 6px; }
+    input { width: 100%; font: inherit; padding: 10px 12px; border: 1px solid #cbd5e1;
+            border-radius: 9px; outline: none; box-sizing: border-box; }
+    input:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.15); }
+    .total { font-size: 44px; font-weight: 700; color: #4f46e5; text-align: center;
+             margin: 22px 0 6px; font-variant-numeric: tabular-nums; }
+    .tip { text-align: center; color: #64748b; font-size: 13px; }
+    .badge { display: inline-block; background: #eef2ff; color: #4f46e5; font-size: 12px;
+             padding: 3px 10px; border-radius: 999px; margin-bottom: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <span class="badge">sahou.wasm 直接解释 · 零转译</span>
+    <h1>响应式价格计算</h1>
+    <div class="sub">改下面的数字，总价自动更新——程序里没有任何事件处理代码</div>
+    <label>单价（元）</label>
+    <input id="单价" value="3.5">
+    <label>数量</label>
+    <input id="数量" value="2">
+    <div class="total" id="总价"></div>
+    <div class="tip" id="提示"></div>
+  </div>
+  <script src="wasm_exec.js"></script>
+  <script>
+    fetch("价格计算.saho").then(r => r.text()).then(src => {
+      globalThis.__SAHO_SOURCE = src;
+      const go = new Go();
+      WebAssembly.instantiateStreaming(fetch("sahou.wasm"), go.importObject)
+        .then(r => go.run(r.instance));
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,139 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "sahou",
+  "scopeName": "source.sahou",
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#string"
+    },
+    {
+      "include": "#number"
+    },
+    {
+      "include": "#module"
+    },
+    {
+      "include": "#builtin"
+    },
+    {
+      "include": "#keyword"
+    },
+    {
+      "include": "#operator"
+    },
+    {
+      "include": "#function-call"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "patterns": [
+        {
+          "match": "#.*$",
+          "name": "comment.line.number-sign.sahou"
+        }
+      ]
+    },
+    "string": {
+      "patterns": [
+        {
+          "begin": "\"",
+          "end": "\"",
+          "name": "string.quoted.double.sahou",
+          "patterns": [
+            {
+              "match": "\\\\[nt\\\\\"'{]}",
+              "name": "constant.character.escape.sahou"
+            },
+            {
+              "begin": "\\{",
+              "end": "\\}",
+              "name": "meta.interpolation.sahou",
+              "patterns": [
+                {
+                  "include": "source.sahou"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "begin": "'",
+          "end": "'",
+          "name": "string.quoted.single.sahou",
+          "patterns": [
+            {
+              "match": "\\\\[nt\\\\\"'{]}",
+              "name": "constant.character.escape.sahou"
+            },
+            {
+              "begin": "\\{",
+              "end": "\\}",
+              "name": "meta.interpolation.sahou",
+              "patterns": [
+                {
+                  "include": "source.sahou"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "number": {
+      "patterns": [
+        {
+          "match": "\\b\\d+(\\.\\d+)?\\b",
+          "name": "constant.numeric.sahou"
+        }
+      ]
+    },
+    "module": {
+      "patterns": [
+        {
+          "match": "\\b(网络|net|页面|page|随机|random|时间|time|数学|math|编码|encoding|系统|sys)(?=\\.)",
+          "name": "entity.name.module.sahou"
+        }
+      ]
+    },
+    "builtin": {
+      "patterns": [
+        {
+          "match": "\\b(打印|print|输入|input|数|num|文本转数|str_to_num|文本|str|列表|list|字典|dict|从a到b|range_to|长度|len|取|slice|抛出|throw|类型|type_of|包含|contains|求和|sum|最大值|max|最小值|min|排序|sorted|反转|reversed|连接|join|分割|split|替换|replace|修剪|trim|转大写|upper|转小写|lower|绝对值|abs|平方根|sqrt|四舍五入|round|读取文件|read_file|写入文件|write_file|文件存在|file_exists)(?=\\s*\\()",
+          "name": "support.function.builtin.sahou"
+        }
+      ]
+    },
+    "keyword": {
+      "patterns": [
+        {
+          "match": "\\b(true|false|null|use|import)\\b|(?<![\\p{L}\\p{Nd}_])(真|假|空值|用|引入)(?![\\p{L}\\p{Nd}_])",
+          "name": "constant.language.sahou"
+        },
+        {
+          "match": "\\b(if|elif|else|while|for|in|end|fn|return|let|try|catch|and|or|not)\\b|(?<![\\p{L}\\p{Nd}_])(如果|又如|否则|当|遍历|于|完毕|函数|返回|设|尝试|接住|并且|或者|非)(?![\\p{L}\\p{Nd}_])",
+          "name": "keyword.control.sahou"
+        }
+      ]
+    },
+    "operator": {
+      "patterns": [
+        {
+          "match": "=>|==|!=|<=|>=|[+\\-*/%<>=]",
+          "name": "keyword.operator.sahou"
+        }
+      ]
+    },
+    "function-call": {
+      "patterns": [
+        {
+          "match": "[\\p{L}_][\\p{L}\\p{Nd}_]*(?=\\()",
+          "name": "entity.name.function.sahou"
+        }
+      ]
+    }
+  }
+}

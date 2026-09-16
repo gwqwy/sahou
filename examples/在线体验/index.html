@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>卅 sahou · 在线体验</title>
+  <link rel="icon" href="../网页/favicon.svg" type="image/svg+xml">
+  <style>
+    :root { --brand:#4F46E5; --brand2:#0EA5E9; --ink:#0f172a; --muted:#64748b; }
+    * { box-sizing: border-box; margin: 0; }
+    body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background:#0f172a; color:#e2e8f0; min-height:100vh; display:flex; flex-direction:column; }
+    header { display:flex; align-items:center; gap:12px; padding:14px 20px; background:#1e293b; }
+    header img { width:34px; height:34px; border-radius:8px; }
+    header h1 { font-size:17px; font-weight:600; }
+    header .sub { color:#94a3b8; font-size:12px; }
+    header .spacer { flex:1; }
+    button.run {
+      font: inherit; font-weight: 600; padding: 8px 22px; border-radius: 9px; border: 0;
+      background: linear-gradient(135deg, var(--brand), var(--brand2)); color: #fff; cursor: pointer;
+    }
+    button.run:disabled { opacity: .5; cursor: wait; }
+    .work { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px 20px 20px; min-height: 0; }
+    .pane { display: flex; flex-direction: column; min-height: 0; background:#1e293b; border-radius: 12px; overflow: hidden; }
+    .pane h2 { font-size: 13px; color: #94a3b8; padding: 8px 14px; font-weight: 500; }
+    textarea {
+      flex: 1; resize: none; border: 0; outline: none; background: #0b1220; color: #e2e8f0;
+      font: 14px/1.65 Consolas, "Courier New", monospace; padding: 14px; tab-size: 4;
+    }
+    pre {
+      flex: 1; margin: 0; padding: 14px; overflow: auto;
+      font: 14px/1.65 Consolas, "Courier New", monospace; white-space: pre-wrap; color: #a5f3fc;
+    }
+    pre .err { color: #fda4af; }
+    .foot { padding: 0 20px 14px; color: #475569; font-size: 12px; }
+    @media (max-width: 760px) { .work { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="../网页/favicon.svg" alt="">
+    <div>
+      <h1>卅 sahou · 在线体验</h1>
+      <div class="sub">左边写 sahou，点运行，右边看输出 —— sahou.wasm 在你的浏览器里直接解释执行</div>
+    </div>
+    <div class="spacer"></div>
+    <button class="run" id="运行" disabled>▶ 运行（Ctrl+Enter）</button>
+  </header>
+
+  <div class="work">
+    <div class="pane">
+      <h2>代码（.saho）</h2>
+      <textarea id="代码" spellcheck="false"></textarea>
+    </div>
+    <div class="pane">
+      <h2>输出</h2>
+      <pre id="输出">// 点击“运行”查看结果</pre>
+    </div>
+  </div>
+  <div class="foot">每次运行都是全新解释器 · 支持 管道 → / 格子 / 尝试接住 / 30 个内置函数 · 无法访问浏览器页面元素（那需要 页面 模块 + 网页文件）</div>
+
+  <script src="wasm_exec.js"></script>
+  <script>
+    const 默认代码 = `# 卅（sahou）—— 比Python更简单一点的入门语言
+# 这段代码正在你的浏览器里被 sahou.wasm 直接解释执行
+
+# ── 管道：数据像石子一样流动 ──
+名单 = [3, 1, 2]
+名单 → 排序 → 反转 → 打印
+
+# ── 格子：改依赖，结果自动重算 ──
+单价 = 2.5
+数量 = 4
+格子 总价 = 单价 * 数量
+print("总价 = {总价}")
+数量 = 10
+print("数量改 10 后，总价 = {总价}")
+
+# ── 试试你自己的代码 ──
+print("你好，{1 + 2}！")
+`;
+
+    const 代码框 = document.getElementById("代码");
+    const 输出框 = document.getElementById("输出");
+    const 运行钮 = document.getElementById("运行");
+    代码框.value = 默认代码;
+
+    let ready = false;
+
+    async function 启动() {
+      const bytes = await (await fetch("sahou.wasm")).arrayBuffer();
+      const go = new Go();
+      const r = await WebAssembly.instantiate(bytes, go.importObject);
+      go.run(r.instance);
+      ready = true;
+      运行钮.disabled = false;
+      运行钮.textContent = "▶ 运行（Ctrl+Enter）";
+    }
+
+    function 运行() {
+      if (!ready) return;
+      const raw = globalThis.__sahou_run(代码框.value);
+      let r;
+      try { r = JSON.parse(raw); } catch (e) { r = { output: raw }; }
+      let html = "";
+      if (r.output) html += r.output.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+      if (r.error) html += '<span class="err">' + r.error.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</span>";
+      if (!html) html = "（没有输出）";
+      输出框.innerHTML = html;
+    }
+
+    运行钮.addEventListener("click", 运行);
+    document.addEventListener("keydown", (e) => {
+      if (e.ctrlKey && e.key === "Enter") { e.preventDefault(); 运行(); }
+    });
+    代码框.addEventListener("keydown", (e) => {
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const s = 代码框.selectionStart, t = 代码框.selectionEnd;
+        代码框.value = 代码框.value.slice(0, s) + "    " + 代码框.value.slice(t);
+        代码框.selectionStart = 代码框.selectionEnd = s + 4;
+      }
+    });
+
+    启动();
+  </script>
+</body>
+</html>

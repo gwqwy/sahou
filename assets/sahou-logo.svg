@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96">
+  <!-- sahou（卅）语言横版 Logo：图形标记 + 字标 -->
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#0EA5E9"/>
+    </linearGradient>
+  </defs>
+  <!-- 图形标记 -->
+  <rect x="8" y="16" width="64" height="64" rx="14" fill="url(#bg2)"/>
+  <g fill="#ffffff">
+    <rect x="25" y="27" width="7" height="42" rx="3.5"/>
+    <rect x="36.5" y="27" width="7" height="42" rx="3.5"/>
+    <rect x="48" y="27" width="7" height="42" rx="3.5"/>
+    <rect x="23" y="43" width="34" height="8" rx="4"/>
+  </g>
+  <!-- 字标 -->
+  <text x="88" y="52" font-family="'Microsoft YaHei', sans-serif" font-size="30" font-weight="700" fill="#0f172a">卅 <tspan fill="#4F46E5">sahou</tspan></text>
+  <text x="90" y="74" font-family="'Microsoft YaHei', sans-serif" font-size="13" fill="#64748b">比 Python 更简单一点的入门语言</text>
+</svg>

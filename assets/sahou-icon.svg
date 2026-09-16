@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- sahou（卅）语言图标 v2：数据流水线 —— 三颗石子沿管道流动 -->
+  <defs>
+    <linearGradient id="pipe" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#0EA5E9"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#pipe)"/>
+  <!-- 管道：一条从左下流向右上的圆角通道 -->
+  <path d="M 10 46
+           H 30
+           A 8 8 0 0 0 38 38
+           V 22
+           A 8 8 0 0 1 46 14
+           H 54"
+        fill="none" stroke="#ffffff" stroke-opacity="0.45"
+        stroke-width="12" stroke-linecap="round"/>
+  <!-- 三颗石子：沿流向由小到大 -->
+  <circle cx="14" cy="46" r="4.2" fill="#ffffff"/>
+  <circle cx="28" cy="46" r="5.2" fill="#ffffff"/>
+  <circle cx="46" cy="16" r="6.5" fill="#ffffff"/>
+  <!-- 流动方向的小箭头 -->
+  <path d="M 50 8 L 56 13 L 48 16 Z" fill="#ffffff"/>
+</svg>
