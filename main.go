@@ -63,8 +63,8 @@ func main() {
 		}
 		formatFile(rest[0])
 	case "version", "版本":
-		fmt.Println("sahou（卅）4.3.0 —— v4 响应式计算模型 + wasm 直接运行 + 全栈与应用（表单/会话/数据库/桌面/手机端）")
-		fmt.Println("23 个关键字 · 30 个内置函数 · 10 个标准库模块")
+		fmt.Println("sahou（卅）4.4.0 —— 全栈 + 应用 + 工程化（数据库/会话/原生窗口/打包/测试/LSP 补全）")
+		fmt.Println("23 个关键字 · 30 个内置函数 · 11 个标准库模块")
 	case "装", "install":
 		stonesInstall(rest)
 	case "serve":
