@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"sahou/internal/errs"
 	"sahou/internal/interp"
 	"sahou/internal/lexer"
 	"sahou/internal/parser"
+	"sahou/internal/stonesrc"
 )
 
 type rpcMessage struct {
@@ -63,10 +65,147 @@ type publishParams struct {
 	Diagnostics []diagnostic `json:"diagnostics"`
 }
 
+type completionParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Position position `json:"position"`
+}
+
+// completionItems 按光标前缀给补全：
+//
+//	`用 "前缀`        -> stones 包名（内嵌 + 本地）
+//	`名字.前缀`       -> 内置模块成员 或 stones 包的顶层名字
+//	其余              -> 关键字 + 内置函数（原有混合表）
+func completionItems(text string, pos position) []map[string]interface{} {
+	items := []map[string]interface{}{}
+	add := func(names []string, kind int) {
+		n := 0
+		for _, w := range names {
+			if w == "" {
+				continue
+			}
+			items = append(items, map[string]interface{}{
+				"label":    w,
+				"kind":     kind,
+				"sortText": fmt.Sprintf("%04d", n),
+			})
+			n++
+		}
+	}
+	prefix := linePrefix(text, pos)
+	// 用 "xxx  ->  包名
+	if strings.Contains(prefix, `"`) && strings.HasSuffix(strings.TrimSpace(prefix), `"`) == false {
+		if idx := strings.LastIndex(prefix, `"`); idx >= 0 {
+			head := strings.TrimSpace(prefix[:idx])
+			if strings.HasSuffix(head, "用") || strings.HasSuffix(head, "use") {
+				add(packageNames(), 9) // Module
+				return items
+			}
+		}
+	}
+	// 模块.成员 / 包名.成员
+	if dot := strings.LastIndex(prefix, "."); dot >= 0 {
+		tail := prefix[dot+1:]
+		head := prefix[:dot]
+		if head != "" && !strings.ContainsAny(head, " \t(){}[],!=<>+-*/%") {
+			pkg := strings.TrimSpace(head)
+			var members []string
+			if m, ok := interp.CompletionMembers()[pkg]; ok {
+				members = m
+			} else {
+				members = interp.CompletionStoneMembers(pkg)
+			}
+			if len(members) > 0 {
+				add(filterByPrefix(members, tail), 3) // Function/Field 混合
+				return items
+			}
+		}
+	}
+	words := []string{}
+	words = append(words, interp.CompletionWords()...)
+	add(words, 14) // Keyword（混合表，统一按关键词给）
+	return items
+}
+
+// linePrefix 取光标位置之前的当前行文本。
+// LSP 的 character 以 UTF-16 单位计（一个汉字算 1），先换算成字节偏移。
+func linePrefix(text string, pos position) string {
+	lines := strings.Split(text, "\n")
+	if pos.Line < 0 || pos.Line >= len(lines) {
+		return ""
+	}
+	line := lines[pos.Line]
+	units := 0
+	for i, r := range line {
+		if units >= pos.Character {
+			return line[:i]
+		}
+		if r >= 0x10000 {
+			units += 2
+		} else {
+			units++
+		}
+	}
+	return line
+}
+
+// filterByPrefix 按已输入的前缀过滤（大小写不敏感）。
+func filterByPrefix(names []string, prefix string) []string {
+	if prefix == "" {
+		return names
+	}
+	p := strings.ToLower(prefix)
+	var out []string
+	for _, n := range names {
+		if strings.HasPrefix(strings.ToLower(n), p) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// packageNames 可引入的包名：exe 内嵌包 + 从当前目录向上找到的本地 stones 包。
+func packageNames() []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(n string) {
+		if n != "" && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	for _, n := range stonesrc.Names() {
+		add(n)
+	}
+	dir, err := os.Getwd()
+	if err == nil {
+		for {
+			entries, err2 := os.ReadDir(filepath.Join(dir, "stones"))
+			if err2 == nil {
+				for _, e := range entries {
+					if e.IsDir() {
+						add(e.Name())
+					} else if strings.HasSuffix(e.Name(), ".saho") {
+						add(strings.TrimSuffix(e.Name(), ".saho"))
+					}
+				}
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+	return out
+}
+
 // Run 启动 LSP 主循环（阻塞到客户端断开或 exit）。
 func Run() {
 	in := make([]byte, 0, 4096)
 	buf := make([]byte, 4096)
+	docs := map[string]string{} // uri -> 全文（补全上下文用）
 	for {
 		msg, err := readFrame(os.Stdin, &in, buf)
 		if err != nil {
@@ -98,6 +237,7 @@ func Run() {
 		case "textDocument/didOpen":
 			var p didOpenParams
 			if json.Unmarshal(m.Params, &p) == nil {
+				docs[p.TextDocument.URI] = p.TextDocument.Text
 				publish(os.Stdout, p.TextDocument.URI, p.TextDocument.Text)
 			}
 		case "textDocument/didChange":
@@ -107,6 +247,7 @@ func Run() {
 				if len(p.ContentChanges) > 0 {
 					text = p.ContentChanges[len(p.ContentChanges)-1].Text
 				}
+				docs[p.TextDocument.URI] = text
 				publish(os.Stdout, p.TextDocument.URI, text)
 			}
 		case "textDocument/didClose":
@@ -119,14 +260,9 @@ func Run() {
 				}))
 			}
 		case "textDocument/completion":
-			items := []map[string]interface{}{}
-			for i, w := range interp.CompletionWords() {
-				items = append(items, map[string]interface{}{
-					"label":    w,
-					"kind":     14, // Keyword（混合表，统一按关键词给）
-					"sortText": fmt.Sprintf("%04d", i),
-				})
-			}
+			var cp completionParams
+			_ = json.Unmarshal(m.Params, &cp)
+			items := completionItems(docs[cp.TextDocument.URI], cp.Position)
 			writeMessage(os.Stdout, mustJSON(map[string]interface{}{
 				"jsonrpc": "2.0",
 				"id":      m.ID,

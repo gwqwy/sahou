@@ -35,10 +35,10 @@ func main() {
 	<-wait // 保持解释器常驻：事件与响应式更新持续工作
 }
 
-// registerPlayground 注册 __sahou_run(源码)：新建独立解释器运行，
+// registerPlayground 注册 __sahou_run(源码)（别名 __卅_run）：新建独立解释器运行，
 // 捕获全部打印，返回 JSON {"output": ..., "error": ...}（在线体验用）。
 func registerPlayground() {
-	js.Global().Set("__sahou_run", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+	run := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		src := ""
 		if len(args) > 0 {
 			src = args[0].String()
@@ -53,7 +53,9 @@ func registerPlayground() {
 		result["output"] = buf.String()
 		data, _ := json.Marshal(result)
 		return js.ValueOf(string(data))
-	}))
+	})
+	js.Global().Set("__sahou_run", run)
+	js.Global().Set("__卅_run", run) // 语言名别名，页面两种写法都能用
 }
 
 // readSource 优先读全局注入的源码文本，否则 fetch __SAHO_PAGE 指向的 .saho 文件。

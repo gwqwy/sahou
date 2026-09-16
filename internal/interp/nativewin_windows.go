@@ -19,3 +19,21 @@ func runNativeWindow(url, title string, w, h int) {
 	wv.Run()
 	wv.Destroy()
 }
+
+// runNativePage 打开"纯代码写页面"的原生窗口（阻塞到关窗）：
+// 绑定 __saho_event（用户事件 → 卅 事件函数）与 __saho_sync（输入镜像同步）；
+// 绑定完成后回调 onReady，此后页面方法可以往窗口里 Eval。
+func runNativePage(spec uiWindowSpec) {
+	fmt.Printf("页面已打开：%s（%d×%d，关闭窗口即继续）\n", spec.title, spec.w, spec.h)
+	wv := webview.New(false)
+	wv.SetTitle(spec.title)
+	wv.SetSize(spec.w, spec.h, webview.HintNone)
+	_ = wv.Bind("__saho_event", func(payload string) string { return spec.onEvent(payload) })
+	_ = wv.Bind("__saho_sync", func(payload string) string { spec.onSync(payload); return "ok" })
+	if spec.onReady != nil {
+		spec.onReady(wv)
+	}
+	wv.SetHtml(spec.html)
+	wv.Run()
+	wv.Destroy()
+}

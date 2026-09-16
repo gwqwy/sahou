@@ -14,6 +14,7 @@ import (
 	"sahou/internal/errs"
 	"sahou/internal/lexer"
 	"sahou/internal/parser"
+	"sahou/internal/stonesrc"
 )
 
 // 控制流信号（用 panic/recover 实现 返回 与 可接住错误 的非局部跳转）。
@@ -278,7 +279,7 @@ func (in *Interp) execTry(st *parser.TryStmt, env *Env) {
 	in.execBlock(st.Catch, env)
 }
 
-// loadModule 解析并加载模块（08 文档 M2–M4）：内置 → 同目录 → stones/。
+// loadModule 解析并加载模块（08 文档 M2–M4）：内置 → 同目录 → stones/ → 内嵌 stones。
 // 返回模块字典与应绑定的中英文名。
 func (in *Interp) loadModule(name string, line int) (*Dict, string, string) {
 	// 内置标准库模块（双语名都指向同一模块）
@@ -309,36 +310,49 @@ func (in *Interp) loadModule(name string, line int) (*Dict, string, string) {
 			break
 		}
 	}
+	// 内嵌 stones 兜底（发布版 exe 单文件自带全部标准库包；磁盘 stones/ 优先，可本地覆盖）
+	if path == "" {
+		if src, ok := stonesrc.Source(name); ok {
+			return in.loadModuleFrom(name, src, "内嵌:"+name, "", line)
+		}
+	}
 	if path == "" {
 		searched := strings.Join([]string{name + ".saho", name + "/main.saho", "stones/" + name + ".saho", "stones/" + name + "/main.saho"}, "、")
 		hint := "搜索过的位置（相对 " + base + "）：" + searched + "。"
-		if _, err := os.Stat(filepath.Join(base, "stones.yml")); err == nil {
+		if stonesrc.Has(name) {
+			hint += "这个包是 exe 自带的，先运行 sahou 装 " + name + " 放进 stones/ 目录。"
+		} else if _, err := os.Stat(filepath.Join(base, "stones.yml")); err == nil {
 			hint += " stones.yml 里如果登记了这个包，先运行 sahou 装 补齐。"
 		} else {
-			hint += "第三方包用 sahou 装 <本地路径> 放进 stones/ 目录。"
+			hint += "第三方包用 sahou 装 <本地路径> 放进 stones/ 目录。运行 sahou stones 可看 exe 自带的包。"
 		}
 		panic(errorSig{errs.RuntimeHint(
 			"找不到模块 \""+name+"\"。", "cannot find module \""+name+"\".", hint, line)})
 	}
 	abs, _ := filepath.Abs(path)
-	// 循环引入检测
-	for _, p := range in.loading {
-		if p == abs {
-			panic(errorSig{errs.RuntimeHint(
-				"模块 \""+name+"\" 循环引入了自己。", "module \""+name+"\" is imported in a cycle.",
-				"模块 A 引入 B、B 又引入 A 是不允许的；把共享的部分抽到第三个模块。", line)})
-		}
-	}
-	if cached, ok := in.modules[abs]; ok {
-		return cached, name, ""
-	}
-	// 读取并解析
 	src, err := encodesrc.ReadFile(abs)
 	if err != nil {
 		panic(errorSig{errs.RuntimeHint(
 			"读不到模块文件 \""+abs+"\"。", "cannot read module file \""+abs+"\".", "", line)})
 	}
-	toks, e := lexer.Tokenize(string(src))
+	return in.loadModuleFrom(name, string(src), abs, filepath.Dir(abs), line)
+}
+
+// loadModuleFrom 从源码文本加载并执行一个模块（磁盘文件与内嵌包共用）。
+// cacheKey 是缓存与循环检测的键；pushDir 非空时压入目录栈（内嵌包不压）。
+func (in *Interp) loadModuleFrom(name, src, cacheKey, pushDir string, line int) (*Dict, string, string) {
+	// 循环引入检测
+	for _, p := range in.loading {
+		if p == cacheKey {
+			panic(errorSig{errs.RuntimeHint(
+				"模块 \""+name+"\" 循环引入了自己。", "module \""+name+"\" is imported in a cycle.",
+				"模块 A 引入 B、B 又引入 A 是不允许的；把共享的部分抽到第三个模块。", line)})
+		}
+	}
+	if cached, ok := in.modules[cacheKey]; ok {
+		return cached, name, ""
+	}
+	toks, e := lexer.Tokenize(src)
 	if e != nil {
 		e.Line += line - 1
 		panic(errorSig{e})
@@ -350,9 +364,11 @@ func (in *Interp) loadModule(name string, line int) (*Dict, string, string) {
 	// 模块作用域：能看到全部内置（moduleBase），看不到引入者的变量
 	modEnv := NewEnv(in.moduleBase())
 	mod := NewDict()
-	in.modules[abs] = mod // 先入缓存，模块内自引用可见
-	in.loading = append(in.loading, abs)
-	in.dirs = append(in.dirs, filepath.Dir(abs))
+	in.modules[cacheKey] = mod // 先入缓存，模块内自引用可见
+	in.loading = append(in.loading, cacheKey)
+	if pushDir != "" {
+		in.dirs = append(in.dirs, pushDir)
+	}
 	in.depth++
 	uncaught := func() (u *errs.Error) {
 		defer func() {
@@ -373,10 +389,12 @@ func (in *Interp) loadModule(name string, line int) (*Dict, string, string) {
 		return nil
 	}()
 	in.depth--
-	in.dirs = in.dirs[:len(in.dirs)-1]
+	if pushDir != "" {
+		in.dirs = in.dirs[:len(in.dirs)-1]
+	}
 	in.loading = in.loading[:len(in.loading)-1]
 	if uncaught != nil {
-		delete(in.modules, abs)
+		delete(in.modules, cacheKey)
 		panic(errorSig{uncaught})
 	}
 	// 导出 = 模块全部顶层名字
@@ -615,7 +633,7 @@ func (in *Interp) evalPipe(e *parser.Pipe, env *Env) Value {
 					panic(errorSig{errs.RuntimeHint(
 						"管道的这一步不是一个加工步骤（收到的是"+TypeName(fv)+"）。",
 						"this pipeline step is not a function (got "+TypeEnName(fv)+").",
-						"步骤写成函数：→ 排序、→ 取(0, 2)、→ 函数(x) => x * 2，或用 它 指代流经的值。", e.Line)})
+						"步骤写成函数：-> 排序、-> 取(0, 2)、-> 函数(x) => x * 2，或用 它 指代流经的值。", e.Line)})
 				}
 			}
 		}
@@ -795,6 +813,28 @@ func (in *Interp) memberValue(recv Value, name string, line int) Value {
 		panic(errorSig{errs.RuntimeHint(
 			"库没有成员 "+name+"。", "the database has no member "+name+".",
 			"库的成员有 执行/execute、查询/query、表/tables、关闭/close。", line)})
+	case *UIPage:
+		if m := uiPageMembers[name]; m != nil {
+			fn := m
+			return &BoundMember{Recv: recv, Zh: m.zh, En: m.en,
+				Call: func(in *Interp, r Value, args []Value, named map[string]Value, line int) (Value, *errs.Error) {
+					return fn.fn(in, r, args, named, line)
+				}}
+		}
+		panic(errorSig{errs.RuntimeHint(
+			"页面没有成员 "+name+"。", "the page has no member "+name+".",
+			"页面的成员有 标题/title、标签/label、按钮/button、输入框/input、复选/checkbox、下拉/select、行/row、弹窗/alert、显示/show、到HTML/to_html。", line)})
+	case *UIWidget:
+		if m := uiWidgetMembers[name]; m != nil {
+			fn := m
+			return &BoundMember{Recv: recv, Zh: m.zh, En: m.en,
+				Call: func(in *Interp, r Value, args []Value, named map[string]Value, line int) (Value, *errs.Error) {
+					return fn.fn(in, r, args, named, line)
+				}}
+		}
+		panic(errorSig{errs.RuntimeHint(
+			"控件没有成员 "+name+"。", "the widget has no member "+name+".",
+			"控件的成员有 改文本/set_text、取文本/text、改占位/set_placeholder、选中/checked、勾/set_checked、选中项/selected、改选项/set_options。", line)})
 	case *Dict:
 		if m := dictMember(name); m != nil {
 			fn := m

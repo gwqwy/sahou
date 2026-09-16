@@ -90,6 +90,10 @@ func appModule() *Dict {
 		runNativeWindow(url, title, w, h)
 		return nil, nil
 	})
+	// 应用.写页面(标题, 宽: 420, 高: 320)：纯代码写图形页面（标签/按钮/输入框+事件）
+	m.fn("写页面", "page", [][]string{{"标题!", "title!"}, {"宽", "width"}, {"高", "height"}}, func(in *Interp, args []Value, line int) (Value, *errs.Error) {
+		return uiNewPage(in, args, line)
+	})
 	// 应用.手机(目录, 端口: 8000)：手机端——监听局域网并打印手机可访问的网址
 	m.fn("手机", "mobile", [][]string{{"目录!"}, {"端口", "port"}}, func(in *Interp, args []Value, line int) (Value, *errs.Error) {
 		dir, e := needTextArg(args, 0, "应用", "手机", line)

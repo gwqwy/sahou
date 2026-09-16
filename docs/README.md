@@ -5,6 +5,9 @@
 ## 快速速览
 
 - **卅**（读音 sa），源文件后缀 **`.saho`**，解释器为独立可执行文件 `sahou.exe`（Go 实现）。核心功能零第三方依赖；唯一的例外是 Windows 原生窗口用的 WebView2 纯 Go 绑定（github.com/jchv/go-webview2，无 CGO）。
+- **exe 自带全部 stones 标准库包**（`用 "包名" 引入` 免安装即用；`sahou stones` 列表、`sahou 装 包名` 取出）与 **卅.wasm 浏览器运行时**（`sahou serve` 后目录里不用放 wasm 文件，浏览器直接打开 `地址/页面.saho` 就能运行）。
+- **纯代码写页面**：`应用.写页面("标题")` + 标签/按钮/输入框/复选/下拉 + 事件函数，像 Java Swing / Python Tkinter 一样全代码写出窗口界面（Windows 真窗口，见 examples/写页面演示.saho）。
+- 管道符号是键盘直接可打的 **`->`**（全角 `→` 是等价别名，词法阶段归一化为同一记号）。
 - 关键字共 **23 个**（v1 18 个；v2 加 `用/引入`；v4 加 `格子`、`跳出`、`继续`。完整双语对照见 00 简报 D2 / 02 规范 2.6）。
 
 ```saho
@@ -26,19 +29,21 @@
 ```bash
 go build -o sahou.exe .        # 构建（或直接用仓库里已构建的 sahou.exe）
 ./sahou.exe run examples/入门演示.saho   # 运行程序
+./sahou.exe run examples/写页面演示.saho  # 纯代码写页面：乘法小测（Windows 打开真窗口）
 ./sahou.exe                    # 交互环境（REPL）
 ./sahou.exe tokens xxx.saho    # 查看记号流
 ./sahou.exe ast xxx.saho       # 查看语法树
-bash tests/run.sh              # 核心一致性测试（19/19 通过）
+bash tests/run.sh              # 核心一致性测试（20/20 通过）
 bash tests/net.sh              # 网络模块回归测试（9/9 通过）
 bash tests/build.sh            # 转译器一致性测试（9/9 通过，含 DOM 桩计数器）
 bash tests/modules.sh          # 模块系统与 stones 回归测试（11/11 通过）
 bash tests/stdlib.sh           # 标准库模块回归测试（7/7 通过，双侧）
-bash tests/packages.sh         # stones 标准库包回归测试（7/7 通过）
+bash tests/packages.sh         # stones 标准库包回归测试（7/7 通过，六包双侧）
 bash tests/wasm.sh             # WASM 直接运行回归测试（4 项断言）
 bash tests/fullstack.sh        # v1.6 全栈回归（数据库/网页/表单/会话，7/7 通过）
 go test ./internal/interp      # 数据库单元测试 + 解释器基准（go test -bench .）
 bash tests/app.sh             # v1.7 应用回归（路径参数/快捷回应/桌面/手机端，7/7 通过）
+bash tests/pack.sh            # v4.2 打包与自带库回归（stones 列表/离线装/打包自带库/serve 兜底，10/10 通过）
 go test ./internal/interp     # 解释器单元测试与基准
 ./sahou.exe build examples/计数器.saho -o examples/计数器.js   # 转译页面，浏览器打开 计数器.html
 ```
@@ -58,6 +63,10 @@ go test ./internal/interp     # 解释器单元测试与基准
 | `internal/interp/testmod.go` | v1.8 测试模块 `测试/assert`：相等/为真/汇总/清零 |
 | `internal/interp/nativewin_windows.go` | v1.8 原生窗口（Windows WebView2，无 CGO） |
 | `internal/format/` | v1.8 `sahou 格式`：保守格式化（缩进/行尾空白/空行，不改写记号） |
+| `internal/interp/uimod.go` | v4.2 写页面：纯代码控件 UI（标签/按钮/输入框/复选/下拉/行 + 事件回调） |
+| `internal/stonesrc/` | v4.2 内嵌 stones 的统一 FS：解释器兜底、转译器兜底、CLI 列表/取出共用 |
+| `stonesfs.go`（根） | v4.2 内嵌声明：stones/ 全部标准库包 + 卅.wasm 运行时打进 exe |
+| `internal/lsp/` | LSP 诊断 + 补全：关键字/内置函数、模块成员（`应用.` → 写页面…）、stones 包成员、`用 "` 包名 |
 | `internal/transpile/` | v1.5 前端：卅→JS 转译器（复用同一 AST）+ JS 运行时前导库（真值/深度相等/15 位有效数字/页面模块） |
 | `tests/cases/` | 一致性快照用例（`.saho` + `.out` 期望输出 / `.err` 错误断言） |
 | `examples/` | 可直接运行的示例（乘法表、字典即对象、错误处理、入门演示） |
@@ -76,10 +85,10 @@ go test ./internal/interp     # 解释器单元测试与基准
 | [07-前端模块教程.md](./07-前端模块教程.md) | 初学者 | 前端入门：为什么转译 → 构建命令 → 页面模块 API → 事件即函数值 → 待办清单页面 |
 | [08-模块与包管理.md](./08-模块与包管理.md) | 实现者/决策者 | v2：`用 "模块名" 引入` 语法与语义、模块解析顺序、stones 包工作流、转译打包 |
 | [09-标准库模块.md](./09-标准库模块.md) | 初学者/实现者 | 标准库：随机/时间/数学/编码/系统 五模块 API、示例、服务端与浏览器可用性对照 |
-| [10-纯卅标准库包.md](./10-纯卅标准库包.md) | 初学者 | 纯 卅 实现的 stones 包：算术库/文本库/游戏库/中文数字，自举分层说明 |
+| [10-纯卅标准库包.md](./10-纯卅标准库包.md) | 初学者 | 纯 卅 实现的 stones 包：算术库/文本库/游戏库/中文数字/统计库/单位换算，自举分层与 exe 内嵌说明 |
 | [14-全栈开发.md](./14-全栈开发.md) | 初学者/实现者 | v1.6：表单/会话/Cookie/静态文件 + 网页/html 服务端渲染 + 数据库/db 嵌入式 SQL |
-| [15-应用开发.md](./15-应用开发.md) | 初学者/实现者 | v1.7/v1.8：路径参数路由、快捷回应、模板文件写页面、桌面应用、手机端、WebView2 原生窗口、sahou 打包独立 exe |
-| [12-管道编程.md](./12-管道编程.md) | 初学者/实现者 | v3 核心特色：数据流水线 `值 → 步骤 → 步骤`，`它` 指代流经的值 |
+| [15-应用开发.md](./15-应用开发.md) | 初学者/实现者 | v1.7/v1.8：路径参数路由、快捷回应、模板文件写页面、桌面应用、手机端、WebView2 原生窗口、sahou 打包独立 exe；v4.2 纯代码写页面（应用.写页面 控件+事件） |
+| [12-管道编程.md](./12-管道编程.md) | 初学者/实现者 | v3 核心特色：数据流水线 `值 -> 步骤 -> 步骤`，`它` 指代流经的值 |
 | [13-响应式计算模型.md](./13-响应式计算模型.md) | 初学者/实现者 | v4：响应式格子（数据流计算模型）+ 卅.wasm 浏览器直接运行（零转译） |
 | [11-用户手册.md](./11-用户手册.md) | **初学者（主教材）** | 学习书式完整手册：开篇学习指南 + 上篇语言基础 8 章 + 下篇进阶与应用 9 章（第 9–17 章）+ 附录 A–D（含学习路线图）；代码块实机验证、每章练习带答案 |
 | [../editors/VS_CODE接入指南.md](../editors/VS_CODE接入指南.md) | 用户 | VS Code 接入：扩展安装、语法高亮、一键运行、实时诊断 |
@@ -94,11 +103,12 @@ go test ./internal/interp     # 解释器单元测试与基准
 | v2 模块与包管理 | ✅ 已实现 | `用 "模块名" 引入`（缓存/循环检测/导出即顶层名）、`sahou 装` + stones/ 目录 + stones.yml、转译器模块打包 |
 | v2 标准库模块 | ✅ 已实现 | 随机/random、时间/time、数学/math、编码/encoding、系统/sys（解释器与转译双侧同语义） |
 | 纯 卅 标准库包 | ✅ 已实现 | stones/ 下的 算术库/文本库/游戏库/中文数字（单份实现，双侧自动打包），stones/ 向上查找 |
-| v3 数据流水线 | ✅ 已实现 | `值 → 步骤 → 步骤` 管道表达式 + `它` 占位，解释器与转译双侧一致，语言图标 v2（流水线主题） |
+| v3 数据流水线 | ✅ 已实现 | `值 -> 步骤 -> 步骤` 管道表达式 + `它` 占位，解释器与转译双侧一致，语言图标 v2（流水线主题） |
 | v4 响应式计算模型 | ✅ 已实现 | `格子` 响应式变量（依赖图自动重算）+ `卅.wasm` 浏览器直接解释执行（零转译零 JS）+ `sahou serve` |
 | v1.8 工程化 | ✅ 已实现 | 数据库自增列/聚合/原子落盘、会话落盘+24h 过期、文件上传、测试/assert 模块、LSP 补全、sahou 格式、远程 zip 装、WebView2 原生窗口、sahou 打包独立 exe |
 | v1.7 应用开发 | ✅ 已实现 | 路径参数路由（/文章/:编号）+ 网络.JSON回应/网页回应/重定向 + 网页.渲染文件/页面 + 应用/app（桌面窗口、手机端局域网） |
 | v1.6 全栈 | ✅ 已实现 | 请求字典新增 表单/Cookie/会话；服务.静态；网页/html 模板渲染；数据库/db 嵌入式 SQL（纯 Go 零依赖，JSON 单文件持久化） |
 | v4.1 循环控制 | ✅ 已实现 | `跳出/break`、`继续/continue`（23 个关键字）+ `位置/find`（第 30 个内置函数，D9 名额用满）|
+| v4.2 自带库与写页面 | ✅ 已实现 | 管道符号 `->`（`→` 别名）；stones 七包内嵌进 exe（免安装/离线取出，解释器与转译双侧同口径）；卅.wasm 内嵌（serve 兜底 + .saho 直接在浏览器运行，浏览器也可引入内嵌包）；`应用.写页面` 纯代码控件 UI（Windows 真窗口；其他平台浏览器事件桥）；模块函数支持命名实参；LSP 成员级补全；打包 exe 自带 stones |
 | 编辑器支持 | ✅ 已实现 | VS Code 扩展（editors/vscode/sahou）：语法高亮、.saho 识别、一键运行、`sahou lsp` 实时诊断 |
 | v1.8 工程化 | ✅ 已实现 | 数据库自增/聚合/原子落盘、会话落盘+过期、文件上传、测试/assert、LSP 补全、`sahou 格式`、远程 zip 装、原生窗口(WebView2)、`sahou 打包`独立 exe |

@@ -56,7 +56,7 @@
       <pre id="输出">// 点击“运行”查看结果</pre>
     </div>
   </div>
-  <div class="foot">每次运行都是全新解释器 · 支持 管道 → / 格子 / 尝试接住 / 30 个内置函数 · 无法访问浏览器页面元素（那需要 页面 模块 + 网页文件）</div>
+  <div class="foot">每次运行都是全新解释器 · 支持 管道 -> / 格子 / 尝试接住 / 30 个内置函数 · 无法访问浏览器页面元素（那需要 页面 模块 + 网页文件）</div>
 
   <script src="wasm_exec.js"></script>
   <script>
@@ -65,7 +65,7 @@
 
 # ── 管道：数据像石子一样流动 ──
 名单 = [3, 1, 2]
-名单 → 排序 → 反转 → 打印
+名单 -> 排序 -> 反转 -> 打印
 
 # ── 格子：改依赖，结果自动重算 ──
 单价 = 2.5
@@ -87,7 +87,7 @@ print("你好，{1 + 2}！")
     let ready = false;
 
     async function 启动() {
-      const bytes = await (await fetch("卅.wasm")).arrayBuffer();
+      const bytes = await (await fetch("sahou.wasm")).arrayBuffer();
       const go = new Go();
       const r = await WebAssembly.instantiate(bytes, go.importObject);
       go.run(r.instance);
@@ -98,7 +98,7 @@ print("你好，{1 + 2}！")
 
     function 运行() {
       if (!ready) return;
-      const raw = globalThis.__卅_run(代码框.value);
+      const raw = globalThis.__sahou_run(代码框.value);
       let r;
       try { r = JSON.parse(raw); } catch (e) { r = { output: raw }; }
       let html = "";

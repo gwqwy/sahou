@@ -13,6 +13,7 @@ import (
 	"sahou/internal/errs"
 	"sahou/internal/lexer"
 	"sahou/internal/parser"
+	"sahou/internal/stonesrc"
 )
 
 //go:embed rt.js
@@ -160,13 +161,28 @@ func collectModules(prog *parser.Program, base string, mods map[string]*modUnit,
 		if !ok || isBuiltinModule(imp.Name) {
 			continue
 		}
+		// 磁盘优先；找不到再兜 exe 内嵌 stones（与解释器 loadModule 同口径）
 		path := resolveModule(base, imp.Name)
-		if path == "" {
+		var id string
+		var src []byte
+		var unitBase string
+		if path != "" {
+			id = strings.ReplaceAll(path, "\\", "/")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return errs.SyntaxHint("读不到模块文件 \""+path+"\"。", "cannot read module file.", "", imp.Line)
+			}
+			src = data
+			unitBase = filepath.Dir(path)
+		} else if embeddedSrc, ok := stonesrc.Source(imp.Name); ok {
+			id = "内嵌:" + imp.Name
+			src = []byte(embeddedSrc)
+			unitBase = base // 嵌套引入沿用同一查找基（磁盘优先，再兜内嵌）
+		} else {
 			return errs.SyntaxHint(
 				"找不到模块 \""+imp.Name+"\"。", "cannot find module \""+imp.Name+"\".",
-				"转译器在页面文件同级目录和 stones/ 目录里找 名字.saho 或 名字/main.saho。", imp.Line)
+				"转译器在页面文件同级目录和 stones/ 目录里找 名字.saho 或 名字/main.saho；exe 自带的包可以直接引入（sahou stones 查看）。", imp.Line)
 		}
-		id := strings.ReplaceAll(path, "\\", "/")
 		for _, p := range stack {
 			if p == id {
 				return errs.SyntaxHint(
@@ -177,10 +193,6 @@ func collectModules(prog *parser.Program, base string, mods map[string]*modUnit,
 		if _, seen := mods[id]; seen {
 			continue
 		}
-		src, err := os.ReadFile(path)
-		if err != nil {
-			return errs.SyntaxHint("读不到模块文件 \""+path+"\"。", "cannot read module file.", "", imp.Line)
-		}
 		toks, e := lexer.Tokenize(string(src))
 		if e != nil {
 			return e
@@ -189,7 +201,7 @@ func collectModules(prog *parser.Program, base string, mods map[string]*modUnit,
 		if e != nil {
 			return e
 		}
-		unit := &modUnit{id: id, name: imp.Name, prog: mp, base: filepath.Dir(path)}
+		unit := &modUnit{id: id, name: imp.Name, prog: mp, base: unitBase}
 		mods[id] = unit
 		unit.names, e = collectAssigned(mp.Stmts)
 		if e != nil {

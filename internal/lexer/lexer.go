@@ -35,7 +35,7 @@ const (
 	NOT      = "NOT"      // not / 非
 	TRY      = "TRY"      // try / 尝试
 	CATCH    = "CATCH"    // catch / 接住
-	PIPE     = "PIPE"     // → 或 -> （v3 数据流水线）
+	PIPE     = "PIPE"     // -> （推荐）或全角 → 别名（v3 数据流水线）
 	CELL     = "CELL"     // cell / 格子（v4 响应式计算模型）
 	BREAK    = "BREAK"    // break / 跳出（v4.1 循环控制）
 	CONTINUE = "CONTINUE" // continue / 继续（v4.1 循环控制）

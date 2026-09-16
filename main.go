@@ -25,6 +25,7 @@ import (
 	"sahou/internal/lexer"
 	"sahou/internal/lsp"
 	"sahou/internal/parser"
+	"sahou/internal/stonesrc"
 	"sahou/internal/transpile"
 )
 
@@ -63,10 +64,12 @@ func main() {
 		}
 		formatFile(rest[0])
 	case "version", "版本":
-		fmt.Println("卅 v0.1 —— 全栈 + 应用 + 工程化（数据库/会话/原生窗口/打包/测试/LSP 补全）")
-		fmt.Println("23 个关键字 · 30 个内置函数 · 11 个标准库模块")
+		fmt.Println("卅 v0.1 —— 全栈 + 应用 + 工程化（数据库/会话/写页面/原生窗口/打包/测试/LSP 补全）")
+		fmt.Println("23 个关键字 · 30 个内置函数 · 11 个标准库模块 · 7 个自带 stones 包")
 	case "装", "install":
 		stonesInstall(rest)
+	case "stones", "库":
+		listStones()
 	case "serve":
 		serveDir(rest)
 	case "lsp":
@@ -91,9 +94,13 @@ func usage() {
   sahou build 页面.saho -o 页面.js  转译成 JavaScript（浏览器运行）
   sahou tokens 程序.saho   查看记号流
   sahou ast 程序.saho      查看语法树
+  sahou stones             列出 exe 自带的标准库包（stones）
   sahou 装 <本地路径|网址.zip>  安装一个包（stones/ 目录 + stones.yml 清单；网址需直连 zip）
+  sahou 装 <包名>          把 exe 自带的标准库包取出到 stones/（离线可用）
   sahou 装                 校验 stones.yml 里的包是否齐全
-  sahou serve [目录]       起本地静态服务（默认 8000 端口，跑 wasm 网页用）
+  sahou serve [目录]       起本地静态服务（默认 8000 端口，跑 wasm 网页用；
+                           exe 自带 卅.wasm 运行时，目录里不用再放 wasm 文件，
+                           直接用浏览器打开 服务地址/某页面.saho 也能运行）
   sahou lsp                语言服务（编辑器实时诊断+补全，stdio）
   sahou 格式 程序.saho     格式化（重排缩进，就地保存）
   sahou 打包 应用.saho -o 应用.exe  生成独立可执行文件（内嵌脚本，资产目录随 exe 分发）
@@ -232,9 +239,38 @@ func main() {
 			os.Exit(2)
 		}
 	}
+	// 打包 exe 自带标准库包：复制 stones/ 并生成内嵌声明（v4.2，与主 exe 同口径）
+	if stonesHasPackages(repoRoot) {
+		if err := copyDir(filepath.Join(repoRoot, "stones"), filepath.Join(tmp, "stones")); err != nil {
+			fmt.Println("复制 stones 失败：", err)
+			os.Exit(2)
+		}
+		embedGo := `package main
+
+import (
+	"embed"
+	"io/fs"
+
+	"sahou/internal/stonesrc"
+)
+
+//go:embed stones
+var stonesDir embed.FS
+
+func init() {
+	if sub, err := fs.Sub(stonesDir, "stones"); err == nil {
+		stonesrc.FS = sub
+	}
+}
+`
+		if werr := os.WriteFile(filepath.Join(tmp, "内嵌库.go"), []byte(embedGo), 0o644); werr != nil {
+			fmt.Println("写不了内嵌声明：", werr)
+			os.Exit(2)
+		}
+	}
 	// go.mod/go.sum：沿用本仓库的依赖（只换模块名），保证离线可构建
 	gomodData, _ := os.ReadFile(filepath.Join(repoRoot, "go.mod"))
-	gomodStr := strings.Replace(string(gomodData), "module 卅", "module 卅app", 1)
+	gomodStr := strings.Replace(string(gomodData), "module sahou", "module sahouapp", 1)
 	gomodStr = gomodStr + "\n"
 	if werr := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(gomodStr), 0o644); werr != nil {
 		fmt.Println("写不了 go.mod：", werr)
@@ -244,7 +280,7 @@ func main() {
 		_ = os.WriteFile(filepath.Join(tmp, "go.sum"), gosum, 0o644)
 	}
 	// 同一模块内引用：所有源码的 卅/internal 前缀改成 卅app/internal
-	mainGo = strings.ReplaceAll(mainGo, "\"sahou/internal/", "\"卅app/internal/")
+	mainGo = strings.ReplaceAll(mainGo, "\"sahou/internal/", "\"sahouapp/internal/")
 	_ = os.WriteFile(filepath.Join(tmp, "main.go"), []byte(mainGo), 0o644)
 	_ = filepath.WalkDir(tmp, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
@@ -254,7 +290,7 @@ func main() {
 		if rerr != nil {
 			return nil
 		}
-		fixed := strings.ReplaceAll(string(data), "\"sahou/internal/", "\"卅app/internal/")
+		fixed := strings.ReplaceAll(string(data), "\"sahou/internal/", "\"sahouapp/internal/")
 		if fixed != string(data) {
 			_ = os.WriteFile(path, []byte(fixed), 0o644)
 		}
@@ -284,7 +320,26 @@ func main() {
 	fmt.Printf("已打包 %s。\n分发时把脚本用到的资产目录（如 应用页面/、stones/、*.db）放在 exe 旁边即可。\n", absOut)
 }
 
-// findRepoRoot 从当前目录向上找 卅 源码根（含 go.mod 且 module 名为 卅）。
+// stonesHasPackages 仓库 stones/ 目录里有没有至少一个包（单文件或目录包）。
+func stonesHasPackages(root string) bool {
+	entries, err := os.ReadDir(filepath.Join(root, "stones"))
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".saho") {
+			return true
+		}
+		if e.IsDir() {
+			if _, err := os.Stat(filepath.Join(root, "stones", e.Name(), "main.saho")); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// findRepoRoot 从当前目录向上找 卅 源码根（含 go.mod 且 module 名为 sahou/卅）。
 func findRepoRoot() string {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -292,7 +347,7 @@ func findRepoRoot() string {
 	}
 	for {
 		data, rerr := os.ReadFile(filepath.Join(dir, "go.mod"))
-		if rerr == nil && strings.Contains(string(data), "module 卅") {
+		if rerr == nil && (strings.Contains(string(data), "module sahou") || strings.Contains(string(data), "module 卅")) {
 			return dir
 		}
 		parent := filepath.Dir(dir)
@@ -474,6 +529,13 @@ func stonesInstall(args []string) {
 		installRemoteZip(src)
 		return
 	}
+	// exe 自带的标准库包：按名字直接取出（离线安装，不需要网络与本地路径）
+	if !strings.ContainsAny(src, `/\`) {
+		if _, isEmbedded := stonesrc.Source(src); isEmbedded {
+			installEmbeddedStone(src)
+			return
+		}
+	}
 	st, err := os.Stat(src)
 	if err != nil {
 		fmt.Printf("找不到要安装的包：%s。\n", src)
@@ -507,6 +569,65 @@ func stonesInstall(args []string) {
 	}
 	addStonesYML(name)
 	fmt.Printf("已安装包 %s 到 stones/，现在可以 用 \"%s\" 引入。\n", name, name)
+}
+
+// installEmbeddedStone 把 exe 内嵌的标准库包复制进 stones/ 并登记 stones.yml。
+func installEmbeddedStone(name string) {
+	desc := stoneDesc(name)
+	if err := os.MkdirAll(filepath.Join("stones", name), 0o755); err != nil {
+		fmt.Printf("建不了 stones 目录：%v\n", err)
+		os.Exit(2)
+	}
+	src, _ := stonesrc.Read(name, "main.saho")
+	if werr := os.WriteFile(filepath.Join("stones", name, "main.saho"), []byte(src), 0o644); werr != nil {
+		fmt.Printf("写不了包文件：%v\n", werr)
+		os.Exit(2)
+	}
+	addStonesYML(name)
+	if desc != "" {
+		fmt.Printf("已安装自带包 %s（%s）到 stones/，现在可以 用 \"%s\" 引入。\n", name, desc, name)
+	} else {
+		fmt.Printf("已安装自带包 %s 到 stones/，现在可以 用 \"%s\" 引入。\n", name, name)
+	}
+}
+
+// stoneDesc 取包源码第一条注释做简介（去掉与包名重复的前缀）。
+func stoneDesc(name string) string {
+	src, ok := stonesrc.Source(name)
+	if !ok {
+		return ""
+	}
+	for _, ln := range strings.Split(src, "\n") {
+		t := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(ln), "#"))
+		if t != "" {
+			t = strings.TrimPrefix(t, name)
+			return strings.TrimLeft(t, " —－-·")
+		}
+	}
+	return ""
+}
+
+// listStones `sahou stones`：列出 exe 自带的标准库包，标注哪些已在本地 stones/。
+func listStones() {
+	names := stonesrc.Names()
+	if len(names) == 0 {
+		fmt.Println("这个 exe 没有内嵌标准库包。")
+		return
+	}
+	fmt.Printf("exe 自带 %d 个标准库包（`用 \"包名\" 引入` 免安装即用；`sahou 装 包名` 取出源码）：\n", len(names))
+	for _, n := range names {
+		local := ""
+		if _, err := os.Stat(filepath.Join("stones", n)); err == nil {
+			local = "  [已在本地 stones/，本地版本优先]"
+		} else if _, err := os.Stat(filepath.Join("stones", n+".saho")); err == nil {
+			local = "  [已在本地 stones/，本地版本优先]"
+		}
+		if desc := stoneDesc(n); desc != "" {
+			fmt.Printf("  %s —— %s%s\n", n, desc, local)
+		} else {
+			fmt.Printf("  %s%s\n", n, local)
+		}
+	}
 }
 
 // installRemoteZip `sahou 装 https://…/包名.zip`：下载 zip 并解压进 stones/包名。
@@ -663,6 +784,9 @@ func verifyStones() {
 		}
 		if okDir {
 			fmt.Printf("√ %s\n", name)
+		} else if stonesrc.Has(name) {
+			missing++
+			fmt.Printf("× %s 缺失，可运行 sahou 装 %s 从 exe 自带包补齐\n", name, name)
 		} else {
 			missing++
 			fmt.Printf("× %s 缺失，请重新运行 sahou 装 <本地路径>\n", name)
@@ -674,6 +798,8 @@ func verifyStones() {
 }
 
 // serveDir 起一个静态文件服务（跑 卅.wasm 网页用）。
+// exe 内嵌了 wasm 运行时：目录里没有 sahou.wasm / wasm_exec.js 也能跑；
+// 直接用浏览器打开 服务地址/某页面.saho 会自动套上运行时在浏览器里解释执行。
 func serveDir(args []string) {
 	dir := "."
 	if len(args) > 0 {
@@ -681,14 +807,86 @@ func serveDir(args []string) {
 	}
 	addr := "127.0.0.1:8000"
 	for _, a := range args {
-		if strings.Contains(a, ":") {
+		// 只把形如 host:端口 / :端口 的参数当地址；Windows 路径（C:\...）不算
+		if looksLikeAddr(a) {
 			addr = strings.TrimPrefix(a, "http://")
 		}
 	}
-	handler := http.FileServer(http.Dir(dir))
+	files := http.FileServer(http.Dir(dir))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		// 内嵌运行时兜底：磁盘上没有 sahou.wasm / 卅.wasm / wasm_exec.js 就给内嵌副本
+		wasmName := name
+		if name == "卅.wasm" {
+			wasmName = "sahou.wasm"
+		}
+		if wasmName == "sahou.wasm" || wasmName == "wasm_exec.js" {
+			if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+				if data, ok := embeddedWasmFile(wasmName); ok {
+					if strings.HasSuffix(wasmName, ".wasm") {
+						w.Header().Set("Content-Type", "application/wasm")
+					} else {
+						w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+					}
+					_, _ = w.Write(data)
+					return
+				}
+			}
+		}
+		// .saho 文件直接在浏览器运行：套一个加载运行时的壳页
+		if strings.HasSuffix(name, ".saho") {
+			if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			title := strings.ReplaceAll(htmlEscapeText(name), ".saho", "")
+			page := `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>` + title + ` · 卅</title>
+<style>body{font-family:Consolas,Menlo,monospace;margin:24px;background:#fafafa}
+pre{background:#fff;border:1px solid #ddd;border-radius:6px;padding:16px;white-space:pre-wrap}</style>
+</head><body><pre id="输出">正在加载 卅.wasm …</pre>
+<script src="/wasm_exec.js"></script>
+<script>__SAHO_PAGE = "/` + name + `";</script>
+<script src="/sahou.wasm"></script></body></html>`
+			_, _ = w.Write([]byte(page))
+			return
+		}
+		files.ServeHTTP(w, r)
+	})
 	fmt.Printf("静态服务已启动：http://%s （目录 %s，Ctrl+C 停止）\n", addr, dir)
-	if err := http.ListenAndServe(addr, handler); err != nil {
+	fmt.Println("浏览器打开 服务地址/某页面.saho 可直接运行 卅 页面（运行时由 exe 内嵌提供）。")
+	if err := http.ListenAndServe(addr, mux); err != nil {
 		fmt.Println("启动失败：", err)
 		os.Exit(1)
 	}
+}
+
+// looksLikeAddr 判断参数是不是 host:端口 形式的监听地址（如 :8000、127.0.0.1:9000）。
+func looksLikeAddr(s string) bool {
+	s = strings.TrimPrefix(s, "http://")
+	i := strings.LastIndex(s, ":")
+	if i < 0 {
+		return false
+	}
+	port := s[i+1:]
+	if port == "" {
+		return false
+	}
+	for _, r := range port {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// htmlEscapeText HTML 文本转义（壳页标题用，避免 </script> 之类注入）。
+func htmlEscapeText(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	return s
 }

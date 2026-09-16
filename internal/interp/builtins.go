@@ -8,8 +8,11 @@ import (
 	"sort"
 	"strings"
 
+	"sahou/internal/encodesrc"
 	"sahou/internal/errs"
 	"sahou/internal/lexer"
+	"sahou/internal/parser"
+	"sahou/internal/stonesrc"
 )
 
 // ---------- 内置函数注册表（规范 6.2：共 29 个，另有 1 个别名不占名额）----------
@@ -1061,4 +1064,80 @@ func CompletionWords() []string {
 		add(m)
 	}
 	return out
+}
+
+// CompletionMembers 内置模块成员表：中英模块名都映射到同一份成员列表（编辑器补全用）。
+func CompletionMembers() map[string][]string {
+	in := New()
+	byDict := map[*Dict][]string{}
+	for _, d := range in.builtinMods {
+		if _, ok := byDict[d]; ok {
+			continue
+		}
+		var members []string
+		for _, k := range d.Keys() {
+			if strings.HasPrefix(k, "s:") {
+				members = append(members, k[2:])
+			}
+		}
+		byDict[d] = members
+	}
+	out := make(map[string][]string, len(in.builtinMods))
+	for name, d := range in.builtinMods {
+		out[name] = byDict[d]
+	}
+	return out
+}
+
+// CompletionStoneMembers 一个 stones 包的顶层名字（函数与顶层变量），编辑器补全用。
+// 内嵌包直接读；本地包从当前目录向上找 stones/（与解释器同口径）。
+func CompletionStoneMembers(pkg string) []string {
+	var src string
+	if s, ok := stonesrc.Source(pkg); ok {
+		src = s
+	} else {
+		found := ""
+		for _, dir := range dirChain(".") {
+			for _, cand := range []string{
+				filepath.Join(dir, "stones", pkg+".saho"),
+				filepath.Join(dir, "stones", pkg, "main.saho"),
+			} {
+				if st, err := os.Stat(cand); err == nil && !st.IsDir() {
+					found = cand
+					break
+				}
+			}
+			if found != "" {
+				break
+			}
+		}
+		if found == "" {
+			return nil
+		}
+		data, err := encodesrc.ReadFile(found)
+		if err != nil {
+			return nil
+		}
+		src = string(data)
+	}
+	toks, e := lexer.Tokenize(src)
+	if e != nil {
+		return nil
+	}
+	prog, e := parser.Parse(toks)
+	if e != nil {
+		return nil
+	}
+	var names []string
+	for _, st := range prog.Stmts {
+		switch s := st.(type) {
+		case *parser.FnStmt:
+			names = append(names, s.Name)
+		case *parser.LetStmt:
+			if id, ok := s.Target.(*parser.Ident); ok {
+				names = append(names, id.Name)
+			}
+		}
+	}
+	return names
 }

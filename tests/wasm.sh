@@ -1,11 +1,11 @@
 #!/bin/bash
 # v4 WASM 直接运行回归测试：构建 sahou.wasm 并在 node 里验证响应式格子。
+# 构建前把仓库根 stones/ 同步进 cmd/sahouwasm/stones/（embed 无法引用上级目录）。
 cd "$(dirname "$0")/.." || exit 1
 GO=${GO:-go}
-NODE=${NODE:-node}
-command -v $GO >/dev/null || export PATH="$PATH:/e/tools/go/bin"
-command -v $NODE >/dev/null || { echo "需要 node"; exit 1; }
-$GO build -o sahou.exe . || exit 1
+rm -rf cmd/sahouwasm/stones
+cp -r stones cmd/sahouwasm/stones
 GOOS=js GOARCH=wasm $GO build -o sahou.wasm ./cmd/sahouwasm || { echo "wasm 构建失败"; exit 1; }
 cp sahou.wasm examples/响应式/sahou.wasm
-$NODE "C:/Users/find/AppData/Local/Temp/wasm_reactive.mjs" 2>/dev/null || $NODE tests/wasm_reactive.mjs
+node tests/wasm_reactive.mjs
+node tests/playground_check.mjs

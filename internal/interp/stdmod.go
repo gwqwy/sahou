@@ -88,15 +88,89 @@ func newMod(zh, en string) *modBuilder {
 func (m *modBuilder) fn(zh, en string, params [][]string, body func(in *Interp, args []Value, line int) (Value, *errs.Error)) {
 	b := &Builtin{Zh: zh, En: en}
 	b.Call = func(in *Interp, args []Value, named map[string]Value, line int) (Value, *errs.Error) {
-		// 位置实参直传；命名实参由各函数自行处理（当前模块集无命名参数）
 		if len(named) > 0 {
-			return nil, errs.RuntimeHint(
-				zh+" 不接受命名实参。", zh+" does not take named arguments.", "", line)
+			merged, e := mergeModuleNamed(zh, params, args, named, line)
+			if e != nil {
+				return nil, e
+			}
+			args = merged
 		}
 		return body(in, args, line)
 	}
 	m.d.SetNew("s:"+zh, b)
 	m.d.SetNew("s:"+en, b)
+}
+
+// mergeModuleNamed 把模块函数的命名实参按参数表归位（与内置函数 bindArgs 同一套规则）：
+// 名字匹配参数的中英别名（别名尾部的 ! 必填标记不参与匹配）；
+// 既按位置又按名字给、或名字不存在都报错；未填充的槽位补 omitted 哨兵。
+func mergeModuleNamed(zh string, params [][]string, pos []Value, named map[string]Value, line int) ([]Value, *errs.Error) {
+	out := make([]Value, len(params))
+	filled := make([]bool, len(params))
+	for i, v := range pos {
+		if i >= len(params) {
+			return nil, errs.RuntimeHint(
+				fmt.Sprintf("%s 只要 %d 个参数，但给了至少 %d 个。", zh, len(params), len(pos)),
+				fmt.Sprintf("%s takes %d arguments but got at least %d.", zh, len(params), len(pos)),
+				"参数个数要与定义一致。", line)
+		}
+		out[i] = v
+		filled[i] = true
+	}
+	for alias, v := range named {
+		matched := false
+		for i, aliases := range params {
+			for _, a := range aliases {
+				if strings.TrimSuffix(a, "!") == alias {
+					if filled[i] {
+						return nil, errs.RuntimeHint(
+							"参数 "+alias+" 既按位置又按名字给了一次。", "argument "+alias+" is given both positionally and by name.",
+							"同一个参数只能给一次。", line)
+					}
+					out[i] = v
+					filled[i] = true
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+		if !matched {
+			var all []string
+			for _, aliases := range params {
+				for _, a := range aliases {
+					all = append(all, strings.TrimSuffix(a, "!"))
+				}
+			}
+			sug := errs.DidYouMean(alias, all)
+			if sug != "" {
+				return nil, errs.RuntimeHint(
+					fmt.Sprintf("%s 没有名叫 \"%s\" 的参数。你是不是想写 \"%s\"？", zh, alias, sug),
+					fmt.Sprintf("%s has no argument \"%s\". Did you mean \"%s\"?", zh, alias, sug),
+					"参数名可以用中文或英文别名。", line)
+			}
+			return nil, errs.RuntimeHint(
+				fmt.Sprintf("%s 没有名叫 \"%s\" 的参数。", zh, alias),
+				fmt.Sprintf("%s has no argument \"%s\".", zh, alias),
+				"参数名可以用中文或英文别名。", line)
+		}
+	}
+	for i := range out {
+		if !filled[i] {
+			for _, a := range params[i] {
+				if strings.HasSuffix(a, "!") {
+					return nil, errs.RuntimeHint(
+						fmt.Sprintf("%s 缺少参数 %s。", zh, strings.TrimSuffix(a, "!")),
+						fmt.Sprintf("%s is missing argument %s.", zh, strings.TrimSuffix(a, "!")),
+						"参数按位置给，或用 名字: 值 按名给。", line)
+				}
+			}
+			out[i] = omitted{}
+		}
+	}
+	return out, nil
 }
 
 func (m *modBuilder) val(zh, en string, v Value) {

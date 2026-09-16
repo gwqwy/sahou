@@ -2,7 +2,7 @@
   "name": "sahou-language",
   "displayName": "sahou（卅）语言支持",
   "description": "sahou 编程语言：语法高亮、文件识别、一键运行、实时语法诊断（基于 sahou lsp）",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "sahou",
   "license": "MIT",
   "engines": {
