@@ -48,6 +48,8 @@ func main() {
 			usage()
 		}
 		dump(cmd, rest[0])
+	case "导出运行时", "export_runtime":
+		exportRuntime(rest)
 	case "build":
 		if len(rest) < 1 {
 			usage()
@@ -101,6 +103,8 @@ func usage() {
   sahou serve [目录]       起本地静态服务（默认 8000 端口，跑 wasm 网页用；
                            exe 自带 卅.wasm 运行时，目录里不用再放 wasm 文件，
                            直接用浏览器打开 服务地址/某页面.saho 也能运行）
+  sahou 导出运行时 [目录]  把 exe 内嵌的 卅.wasm + wasm_exec.js 写出来（部署到
+                           别处 Web 服务器才需要；本机使用不用管）
   sahou lsp                语言服务（编辑器实时诊断+补全，stdio）
   sahou 格式 程序.saho     格式化（重排缩进，就地保存）
   sahou 打包 应用.saho -o 应用.exe  生成独立可执行文件（内嵌脚本，资产目录随 exe 分发）
@@ -318,6 +322,34 @@ func init() {
 	}
 	absOut, _ := filepath.Abs(outPath)
 	fmt.Printf("已打包 %s。\n分发时把脚本用到的资产目录（如 应用页面/、stones/、*.db）放在 exe 旁边即可。\n", absOut)
+}
+
+// exportRuntime `sahou 导出运行时 [目录]`：把 exe 内嵌的 卅.wasm 与 wasm_exec.js
+// 写到目录（默认当前目录）。给想把网页部署到别处 Web 服务器的人用——
+// 平时完全不需要这两个文件，serve 与 .saho 直跑都由 exe 自带运行时兜底。
+func exportRuntime(args []string) {
+	dir := "."
+	if len(args) > 0 {
+		dir = args[0]
+	}
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		fmt.Printf("目录 %s 不存在。\n", dir)
+		os.Exit(2)
+	}
+	for _, name := range []string{"sahou.wasm", "wasm_exec.js"} {
+		data, ok := embeddedWasmFile(name)
+		if !ok {
+			fmt.Println("这个 exe 没有内嵌运行时。")
+			os.Exit(2)
+		}
+		target := filepath.Join(dir, name)
+		if werr := os.WriteFile(target, data, 0o644); werr != nil {
+			fmt.Printf("写不了 %s：%v\n", target, werr)
+			os.Exit(2)
+		}
+		fmt.Printf("已导出 %s（%d 字节）。\n", target, len(data))
+	}
+	fmt.Println("把这两个文件和你的 .html/.saho 一起传到 Web 服务器即可；本机使用不需要它们。")
 }
 
 // stonesHasPackages 仓库 stones/ 目录里有没有至少一个包（单文件或目录包）。
