@@ -2,5 +2,4 @@ sahou.exe~
 *.db
 应用页面/
 tests/.tmp_app/
-*.out
 分发版/
