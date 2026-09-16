@@ -12,35 +12,35 @@ import (
 
 // 记号类别（英文规范拼写；中文关键字映射到同一个类别）。
 const (
-	EOF    = "EOF"
-	NL     = "NL"
-	IDENT  = "IDENT"
-	NUMBER = "NUMBER"
-	STRING = "STRING"
-	IF     = "IF"     // if / 如果
-	ELIF   = "ELIF"   // elif / 又如
-	ELSE   = "ELSE"   // else / 否则
-	WHILE  = "WHILE"  // while / 当
-	FOR    = "FOR"    // for / 遍历
-	IN     = "IN"     // in / 于
-	END    = "END"    // end / 完毕
-	FN     = "FN"     // fn / 函数
-	RETURN = "RETURN" // return / 返回
-	LET    = "LET"    // let / 设
-	TRUE   = "TRUE"   // true / 真
-	FALSE  = "FALSE"  // false / 假
-	NULL   = "NULL"   // null / 空值
-	AND    = "AND"    // and / 并且
-	OR     = "OR"     // or / 或者
-	NOT    = "NOT"    // not / 非
-	TRY    = "TRY"    // try / 尝试
-	CATCH  = "CATCH"  // catch / 接住
-	PIPE   = "PIPE"      // → 或 -> （v3 数据流水线）
-	CELL   = "CELL"      // cell / 格子（v4 响应式计算模型）
+	EOF      = "EOF"
+	NL       = "NL"
+	IDENT    = "IDENT"
+	NUMBER   = "NUMBER"
+	STRING   = "STRING"
+	IF       = "IF"       // if / 如果
+	ELIF     = "ELIF"     // elif / 又如
+	ELSE     = "ELSE"     // else / 否则
+	WHILE    = "WHILE"    // while / 当
+	FOR      = "FOR"      // for / 遍历
+	IN       = "IN"       // in / 于
+	END      = "END"      // end / 完毕
+	FN       = "FN"       // fn / 函数
+	RETURN   = "RETURN"   // return / 返回
+	LET      = "LET"      // let / 设
+	TRUE     = "TRUE"     // true / 真
+	FALSE    = "FALSE"    // false / 假
+	NULL     = "NULL"     // null / 空值
+	AND      = "AND"      // and / 并且
+	OR       = "OR"       // or / 或者
+	NOT      = "NOT"      // not / 非
+	TRY      = "TRY"      // try / 尝试
+	CATCH    = "CATCH"    // catch / 接住
+	PIPE     = "PIPE"     // → 或 -> （v3 数据流水线）
+	CELL     = "CELL"     // cell / 格子（v4 响应式计算模型）
 	BREAK    = "BREAK"    // break / 跳出（v4.1 循环控制）
 	CONTINUE = "CONTINUE" // continue / 继续（v4.1 循环控制）
-	USE    = "USE"       // use / 用（v2 模块引入）
-	IMPORT = "IMPORT"    // import / 引入（v2，可省略的收尾词）
+	USE      = "USE"      // use / 用（v2 模块引入）
+	IMPORT   = "IMPORT"   // import / 引入（v2，可省略的收尾词）
 	// 运算符与分隔符
 	PLUS, MINUS, STAR, SLASH, PERCENT = "+", "-", "*", "/", "%"
 	EQ, NEQ, LT, LE, GT, GE           = "==", "!=", "<", "<=", ">", ">="

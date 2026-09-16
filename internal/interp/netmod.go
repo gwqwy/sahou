@@ -34,9 +34,9 @@ type Server struct {
 	patterns    []patternRoute   // 带路径参数的路由：/文章/:编号
 	statics     []staticRoute    // 静态文件路由（前缀 → 本地目录）
 	sessMu      sync.Mutex
-	sessions    map[string]*Dict        // 会话ID → 会话字典（v1.6，PHP $_SESSION 对应物）
-	sessionSeen map[string]int64        // 会话ID → 最后活跃时间（Unix 秒，过期清理用）
-	sessPath    string                  // 会话落盘文件（服务.会话存 设置后启用）
+	sessions    map[string]*Dict // 会话ID → 会话字典（v1.6，PHP $_SESSION 对应物）
+	sessionSeen map[string]int64 // 会话ID → 最后活跃时间（Unix 秒，过期清理用）
+	sessPath    string           // 会话落盘文件（服务.会话存 设置后启用）
 }
 
 const sessionTTL = int64(24 * 3600) // 会话有效期：24 小时无活动即过期
@@ -373,7 +373,7 @@ func (in *Interp) serveHTTP(srv *Server, w http.ResponseWriter, r *http.Request)
 	req.SetNew("s:会话", session)
 	req.SetNew("s:体", string(body))
 	req.SetNew("s:参数", NewDict()) // 路径参数（:名字 捕获）
-	req.SetNew("s:文件", uploads)  // 上传的文件（multipart）
+	req.SetNew("s:文件", uploads)   // 上传的文件（multipart）
 
 	key := strings.ToUpper(r.Method) + " " + r.URL.Path
 	handler, found := srv.routes[key]

@@ -11,7 +11,6 @@ import (
 	"sahou/internal/parser"
 )
 
-
 // cellValue 读格子的当前值（不存在则返回 ok=false）。
 func (in *Interp) cellValue(name string) (Value, bool) {
 	if _, exists := in.cells[name]; !exists {

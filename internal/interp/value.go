@@ -14,6 +14,7 @@ import (
 
 // Value 任意 sahou 值。具体承载见下方注释。
 type Value = interface{}
+
 //
 // 数   → *big.Rat（唯一"数"类型的内部承载：精确有理数，整数即分母为 1）
 // 文本 → string

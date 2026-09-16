@@ -4,10 +4,10 @@
 package interp
 
 import (
+	"encoding/base64"
 	"fmt"
 	"math"
 	"math/big"
-	"encoding/base64"
 	"math/rand"
 	"net/url"
 	"os"
@@ -107,8 +107,8 @@ func (m *modBuilder) val(zh, en string, v Value) {
 // ---------- 随机/random ----------
 
 var (
-	rngMu  sync.Mutex
-	rng    = rand.New(rand.NewSource(time.Now().UnixNano()))
+	rngMu sync.Mutex
+	rng   = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
 func modRandom() *Dict {

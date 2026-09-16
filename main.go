@@ -10,9 +10,9 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,8 +22,8 @@ import (
 	"sahou/internal/errs"
 	"sahou/internal/format"
 	"sahou/internal/interp"
-	"sahou/internal/lsp"
 	"sahou/internal/lexer"
+	"sahou/internal/lsp"
 	"sahou/internal/parser"
 	"sahou/internal/transpile"
 )
@@ -91,7 +91,7 @@ func usage() {
   sahou build 页面.saho -o 页面.js  转译成 JavaScript（浏览器运行）
   sahou tokens 程序.saho   查看记号流
   sahou ast 程序.saho      查看语法树
-  sahou 装 <本地路径>      安装一个包（stones/ 目录 + stones.yml 清单）
+  sahou 装 <本地路径|网址.zip>  安装一个包（stones/ 目录 + stones.yml 清单；网址需直连 zip）
   sahou 装                 校验 stones.yml 里的包是否齐全
   sahou serve [目录]       起本地静态服务（默认 8000 端口，跑 wasm 网页用）
   sahou lsp                语言服务（编辑器实时诊断+补全，stdio）
@@ -459,6 +459,7 @@ func isIncomplete(e *errs.Error) bool {
 		strings.Contains(e.Zh, "后面要换一行") ||
 		strings.Contains(e.Zh, "这个块里什么也没有")
 }
+
 // ---------- v2 stones 包管理（08 文档 M7）----------
 
 // stonesInstall `sahou 装 <本地路径>`：把包复制进 stones/ 并登记 stones.yml；
@@ -648,7 +649,7 @@ func addStonesYML(name string) {
 func verifyStones() {
 	packages := stonesYMLPackages()
 	if len(packages) == 0 {
-		fmt.Println("stones.yml 里还没有登记任何包。安装：sahou 装 <本地路径>")
+		fmt.Println("stones.yml 里还没有登记任何包。安装：sahou 装 <本地路径或网址.zip>")
 		return
 	}
 	missing := 0

@@ -866,7 +866,6 @@ func stdModuleObject2(name string) (string, bool) {
 	return obj, obj != ""
 }
 
-
 func containsIt(x parser.Expr) bool {
 	switch e := x.(type) {
 	case *parser.Ident:

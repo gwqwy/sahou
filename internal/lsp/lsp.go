@@ -17,10 +17,10 @@ import (
 )
 
 type rpcMessage struct {
-	ID      *json.Number `json:"id,omitempty"`
-	Method  string       `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  interface{}  `json:"result,omitempty"`
+	ID     *json.Number    `json:"id,omitempty"`
+	Method string          `json:"method,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
+	Result interface{}     `json:"result,omitempty"`
 }
 
 type position struct {
@@ -83,7 +83,7 @@ func Run() {
 				"id":      m.ID,
 				"result": map[string]interface{}{
 					"capabilities": map[string]interface{}{
-						"textDocumentSync":  1, // 全量同步
+						"textDocumentSync": 1, // 全量同步
 						"completionProvider": map[string]interface{}{
 							"triggerCharacters": []string{".", " "},
 						},
@@ -122,8 +122,8 @@ func Run() {
 			items := []map[string]interface{}{}
 			for i, w := range interp.CompletionWords() {
 				items = append(items, map[string]interface{}{
-					"label": w,
-					"kind":  14, // Keyword（混合表，统一按关键词给）
+					"label":    w,
+					"kind":     14, // Keyword（混合表，统一按关键词给）
 					"sortText": fmt.Sprintf("%04d", i),
 				})
 			}

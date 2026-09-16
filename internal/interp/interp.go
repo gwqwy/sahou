@@ -32,7 +32,7 @@ type Interp struct {
 	Stderr    io.Writer
 	Input     func(prompt string) string
 	// LastValue 记录顶层表达式语句的值，REPL 用它回显。
-	LastValue   Value
+	LastValue    Value
 	HasLastValue bool
 
 	depth    int
@@ -71,13 +71,13 @@ func New() *Interp {
 			_, _ = fmt.Scanln(&line) // 退化路径；CLI 会注入 bufio 版本
 			return line
 		},
-		maxDepth: 200,
-		warned:   map[string]bool{},
-		modules:  map[string]*Dict{},
+		maxDepth:    200,
+		warned:      map[string]bool{},
+		modules:     map[string]*Dict{},
 		builtinMods: map[string]*Dict{},
-		ExitCode: -1,
-		cells:    map[string]*cellDef{},
-		watchers: map[string][]func(Value){},
+		ExitCode:    -1,
+		cells:       map[string]*cellDef{},
+		watchers:    map[string][]func(Value){},
 	}
 	for name, b := range builtins {
 		in.Globals.Set(name, b)
@@ -613,8 +613,8 @@ func (in *Interp) evalPipe(e *parser.Pipe, env *Env) Value {
 					v = in.callStepFn(fv, v, e.Line, "管道步骤")
 				default:
 					panic(errorSig{errs.RuntimeHint(
-						"管道的这一步不是一个加工步骤（收到的是" + TypeName(fv) + "）。",
-						"this pipeline step is not a function (got " + TypeEnName(fv) + ").",
+						"管道的这一步不是一个加工步骤（收到的是"+TypeName(fv)+"）。",
+						"this pipeline step is not a function (got "+TypeEnName(fv)+").",
 						"步骤写成函数：→ 排序、→ 取(0, 2)、→ 函数(x) => x * 2，或用 它 指代流经的值。", e.Line)})
 				}
 			}

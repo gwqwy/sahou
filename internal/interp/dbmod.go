@@ -103,8 +103,8 @@ func openDatabase(path string, line int) (Value, *errs.Error) {
 		}
 		for name, blob := range raw {
 			var skeleton struct {
-				Cols []string           `json:"列"`
-				Auto []string           `json:"自增"`
+				Cols []string            `json:"列"`
+				Auto []string            `json:"自增"`
 				Rows [][]json.RawMessage `json:"行"`
 			}
 			if jerr := json.Unmarshal(blob, &skeleton); jerr != nil {
@@ -420,7 +420,7 @@ type dbAgg struct {
 }
 
 type dbStmt struct {
-	kind       string // 建 / 删表 / 插入 / 选择 / 更新 / 删行
+	kind       string  // 建 / 删表 / 插入 / 选择 / 更新 / 删行
 	aggs       []dbAgg // 选择语句的聚合项（有聚合时输出单行）
 	table      string
 	ifNotHave  bool // 建表 如无；删表 如有
@@ -432,7 +432,7 @@ type dbStmt struct {
 	limit      int
 	hasLimit   bool
 	sets       []dbSet // 更新：列 = 值
-	where      dbCond // 条件树；kind=="" 表示无条件
+	where      dbCond  // 条件树；kind=="" 表示无条件
 }
 
 type dbSet struct {
@@ -478,7 +478,7 @@ type sqlParser struct {
 	toks     []sqlTok
 	pos      int
 	line     int
-	paramSeq int // ? 的个数（解析期编号）
+	paramSeq int   // ? 的个数（解析期编号）
 	agg      dbAgg // tryAggregate 命中时回传
 }
 

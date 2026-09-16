@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	webview "github.com/jchv/go-webview2"
-
 )
 
 // runNativeWindow 打开 WebView2 原生窗口（阻塞到关窗）。

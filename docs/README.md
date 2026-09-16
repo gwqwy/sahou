@@ -4,7 +4,7 @@
 
 ## 快速速览
 
-- 中文名 **卅**，英文名 **sahou**，源文件后缀 **`.saho`**，解释器为独立可执行文件 `sahou.exe`（Go 实现，零依赖）。
+- 中文名 **卅**，英文名 **sahou**，源文件后缀 **`.saho`**，解释器为独立可执行文件 `sahou.exe`（Go 实现）。核心功能零第三方依赖；唯一的例外是 Windows 原生窗口用的 WebView2 纯 Go 绑定（github.com/jchv/go-webview2，无 CGO）。
 - 关键字共 **23 个**（v1 18 个；v2 加 `用/引入`；v4 加 `格子`、`跳出`、`继续`。完整双语对照见 00 简报 D2 / 02 规范 2.6）。
 
 ```saho
@@ -29,7 +29,7 @@ go build -o sahou.exe .        # 构建（或直接用仓库里已构建的 saho
 ./sahou.exe                    # 交互环境（REPL）
 ./sahou.exe tokens xxx.saho    # 查看记号流
 ./sahou.exe ast xxx.saho       # 查看语法树
-bash tests/run.sh              # 核心一致性测试（14/14 通过）
+bash tests/run.sh              # 核心一致性测试（19/19 通过）
 bash tests/net.sh              # 网络模块回归测试（9/9 通过）
 bash tests/build.sh            # 转译器一致性测试（9/9 通过，含 DOM 桩计数器）
 bash tests/modules.sh          # 模块系统与 stones 回归测试（11/11 通过）

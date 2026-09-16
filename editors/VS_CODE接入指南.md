@@ -16,11 +16,11 @@ sahou 的 VS Code 支持住在仓库的 `editors/vscode/sahou/` 目录里，它�
 | `syntaxes/sahou.tmLanguage.json` | TextMate 语法：**双语关键字、内置函数、模块名、注释、字符串插值、数字**的着色规则 |
 | `language-configuration.json` | 编辑器基础行为：**括号配对、注释切换、自动闭合**（引号与括号） |
 | `snippets/sahou.json` | 代码片段：**函数 / 如果 / 当 / 遍历 / 尝试 / 引入** |
-| `extension.js` | 扩展主代码，无 npm 依赖。注册 `sahou.run` 命令（在终端运行当前文件），并内置一个**极简 LSP 客户端**：启动 `<sahou 路径> lsp` 获取实时诊断 |
+| `extension.js` | 扩展主代码，无 npm 依赖。注册 `sahou.run` 命令（在终端运行当前文件），并内置一个**极简 LSP 客户端**：启动 `<sahou 路径> lsp` 获取实时诊断与补全（v1.8 起） |
 
 另外，仓库的 `.vscode/tasks.json` 里有一个现成的构建任务：**“运行当前 sahou 文件”**。
 
-记住一句话即可：**扩展负责“看得舒服 + 跑得方便”，诊断能力来自解释器 `sahou.exe` 的 `lsp` 子命令。**
+记住一句话即可：**扩展负责“看得舒服 + 跑得方便”，诊断与补全能力来自解释器 `sahou.exe` 的 `lsp` 子命令。**
 
 ---
 
@@ -66,7 +66,7 @@ Copy-Item -Recurse -Force "E:\文件\代码系统\editors\vscode\sahou" "$env:US
 ## 3. 方式三（完整）：配置 sahou.path，开启实时语法诊断
 
 扩展内置了一个**极简 LSP 客户端**。它的工作方式是：启动 `<sahou 路径> lsp`，
-通过 **stdio 上的 JSON-RPC** 与解释器通信；解释器返回**打开与修改文件时的语法诊断**，
+通过 **stdio 上的 JSON-RPC** 与解释器通信；解释器返回**打开与修改文件时的语法诊断**（v1.8 起编辑器请求补全时还会给出关键字/内置函数/模块名清单），
 于是编辑器里出现红色/黄色的波浪线，鼠标悬停可看双语错误信息。
 
 ### 3.1 确保 sahou.exe 可用

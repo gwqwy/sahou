@@ -92,18 +92,18 @@ type TryStmt struct {
 	Line     int
 }
 
-func (s *LetStmt) Pos() int   { return s.Line }
-func (s *ExprStmt) Pos() int  { return s.Line }
-func (s *IfStmt) Pos() int    { return s.Line }
-func (s *WhileStmt) Pos() int { return s.Line }
-func (s *ForStmt) Pos() int   { return s.Line }
-func (s *FnStmt) Pos() int    { return s.Line }
-func (s *ReturnStmt) Pos() int { return s.Line }
+func (s *LetStmt) Pos() int      { return s.Line }
+func (s *ExprStmt) Pos() int     { return s.Line }
+func (s *IfStmt) Pos() int       { return s.Line }
+func (s *WhileStmt) Pos() int    { return s.Line }
+func (s *ForStmt) Pos() int      { return s.Line }
+func (s *FnStmt) Pos() int       { return s.Line }
+func (s *ReturnStmt) Pos() int   { return s.Line }
 func (s *BreakStmt) Pos() int    { return s.Line }
 func (s *ContinueStmt) Pos() int { return s.Line }
-func (s *CellStmt) Pos() int  { return s.Line }
-func (s *ImportStmt) Pos() int { return s.Line }
-func (s *TryStmt) Pos() int   { return s.Line }
+func (s *CellStmt) Pos() int     { return s.Line }
+func (s *ImportStmt) Pos() int   { return s.Line }
+func (s *TryStmt) Pos() int      { return s.Line }
 
 // --- 表达式 ---
 
@@ -195,19 +195,19 @@ type AnonFn struct { // 函数(参数) => 表达式
 	Line   int
 }
 
-func (e *NumLit) Pos() int   { return e.Line }
-func (e *StrLit) Pos() int   { return e.Line }
-func (e *Ident) Pos() int    { return e.Line }
-func (e *ListLit) Pos() int  { return e.Line }
-func (e *DictLit) Pos() int  { return e.Line }
-func (e *Bin) Pos() int      { return e.Line }
-func (e *Un) Pos() int       { return e.Line }
-func (e *Not) Pos() int      { return e.Line }
-func (e *Index) Pos() int    { return e.Line }
-func (e *Member) Pos() int   { return e.Line }
-func (e *Call) Pos() int     { return e.Line }
-func (e *Pipe) Pos() int     { return e.Line }
-func (e *AnonFn) Pos() int   { return e.Line }
+func (e *NumLit) Pos() int  { return e.Line }
+func (e *StrLit) Pos() int  { return e.Line }
+func (e *Ident) Pos() int   { return e.Line }
+func (e *ListLit) Pos() int { return e.Line }
+func (e *DictLit) Pos() int { return e.Line }
+func (e *Bin) Pos() int     { return e.Line }
+func (e *Un) Pos() int      { return e.Line }
+func (e *Not) Pos() int     { return e.Line }
+func (e *Index) Pos() int   { return e.Line }
+func (e *Member) Pos() int  { return e.Line }
+func (e *Call) Pos() int    { return e.Line }
+func (e *Pipe) Pos() int    { return e.Line }
+func (e *AnonFn) Pos() int  { return e.Line }
 
 // ---------- 分析器 ----------
 
@@ -247,7 +247,7 @@ func ParseExprSource(src string, line int) (Expr, *errs.Error) {
 	return x, nil
 }
 
-func (p *Parser) cur() lexer.Token  { return p.toks[p.pos] }
+func (p *Parser) cur() lexer.Token { return p.toks[p.pos] }
 func (p *Parser) peek() lexer.Token {
 	if p.pos+1 < len(p.toks) {
 		return p.toks[p.pos+1]
@@ -509,8 +509,10 @@ func (p *Parser) ifStmt() (Stmt, *errs.Error) {
 }
 
 // blockBody 解析块体，两种风格任选其一（同一块内需一致）：
-//   花括号风格（v2 新增，Java 式）：{ 语句... }，允许空块
-//   完毕风格（D1 原生）：换行 + 语句... + end/完毕，块体不可为空
+//
+//	花括号风格（v2 新增，Java 式）：{ 语句... }，允许空块
+//	完毕风格（D1 原生）：换行 + 语句... + end/完毕，块体不可为空
+//
 // 返回 (语句列表, 是否用了花括号)。
 func (p *Parser) blockBody(blockZh string) ([]Stmt, bool, *errs.Error) {
 	if p.at(lexer.LBRACE) {
@@ -647,7 +649,7 @@ func (p *Parser) fnStmt() (Stmt, *errs.Error) {
 	if e != nil {
 		return nil, e
 	}
-	body, braced, e := p.blockBody("函数 "+name.Text)
+	body, braced, e := p.blockBody("函数 " + name.Text)
 	if e != nil {
 		return nil, e
 	}
@@ -1194,7 +1196,7 @@ func (p *Parser) listLit() (Expr, *errs.Error) {
 
 func (p *Parser) dictLit() (Expr, *errs.Error) {
 	line := p.cur().Line
-	p.next() // {
+	p.next()   // {
 	p.skipNL() // 花括号不再抑制换行，字典内部由解析器自行跳过
 	var items []DictItem
 	for !p.at(lexer.RBRACE) {
