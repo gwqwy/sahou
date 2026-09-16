@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -933,6 +934,9 @@ func biWriteFile(in *Interp, args []Value, line int) (Value, *errs.Error) {
 		return nil, e
 	}
 	content := Str(args[1])
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		_ = os.MkdirAll(dir, 0o755) // 父目录不存在就自动建（入门友好）
+	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return nil, errs.RuntimeHint(
 			"写不进文件 \""+Str(args[0])+"\"。", "cannot write file \""+Str(args[0])+"\".",

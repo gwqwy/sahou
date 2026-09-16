@@ -1,0 +1,10 @@
+# 原生窗口应用（v1.8）：WebView2 真窗口——无浏览器地址栏，关闭窗口即退出。
+# 运行：./sahou.exe run examples/原生窗口.saho
+# 打包成独立程序：./sahou.exe 打包 examples/原生窗口.saho -o 我的窗口应用.exe
+模板 = "<!doctype html><html><head><meta charset='utf-8'><title>[[标题]]</title></head><body>"
+模板 = 模板 + "<h1>[[标题]]</h1><p>这是一个原生窗口（WebView2），没有浏览器地址栏。</p>"
+模板 = 模板 + "<button>点我</button><script>let n = 0;"
+模板 = 模板 + "document.querySelector(\"button\").onclick = function() \{"
+模板 = 模板 + "  n++; this.textContent = \"点了 \" + n + \" 次\"; \}</script></body></html>"
+写入文件("应用页面/原生.html", 网页.渲染(模板, {"标题": "你好，原生窗口"}))
+应用.原生窗口("应用页面", "我的第一个窗口应用", 900, 600)
