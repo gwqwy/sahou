@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>响应式价格计算 · sahou.wasm 直接运行</title>
+  <title>响应式价格计算 · 卅.wasm 直接运行</title>
   <link rel="icon" href="../网页/favicon.svg" type="image/svg+xml">
   <style>
     body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #f1f5f9;
@@ -25,7 +25,7 @@
 </head>
 <body>
   <div class="card">
-    <span class="badge">sahou.wasm 直接解释 · 零转译</span>
+    <span class="badge">卅.wasm 直接解释 · 零转译</span>
     <h1>响应式价格计算</h1>
     <div class="sub">改下面的数字，总价自动更新——程序里没有任何事件处理代码</div>
     <label>单价（元）</label>
@@ -40,7 +40,7 @@
     fetch("价格计算.saho").then(r => r.text()).then(src => {
       globalThis.__SAHO_SOURCE = src;
       const go = new Go();
-      WebAssembly.instantiateStreaming(fetch("sahou.wasm"), go.importObject)
+      WebAssembly.instantiateStreaming(fetch("卅.wasm"), go.importObject)
         .then(r => go.run(r.instance));
     });
   </script>

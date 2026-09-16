@@ -1,7 +1,7 @@
 # 桌面应用（v1.7 应用模块）：先用 网页 模块写一个页面文件，再用 应用.窗口 打开它。
-# 运行：./sahou.exe run examples/桌面应用.saho  —— 会自动弹出浏览器窗口，Ctrl+C 退出。
+# 运行：./卅.exe run examples/桌面应用.saho  —— 会自动弹出浏览器窗口，Ctrl+C 退出。
 模板 = "<!doctype html><html><head><meta charset='utf-8'><title>[[标题]]</title></head><body>"
-模板 = 模板 + "<h1>[[标题]]</h1><p>这是一个用 sahou 写的桌面应用（浏览器壳）。</p>"
+模板 = 模板 + "<h1>[[标题]]</h1><p>这是一个用 卅 写的桌面应用（浏览器壳）。</p>"
 模板 = 模板 + "<button onclick='点击.数 = 点击.数 + 1'>点我</button>"
 模板 = 模板 + "</body></html>"
 模板 = 模板 + "<script>点击 = {数: 0}; document.querySelector('button').addEventListener('click', "

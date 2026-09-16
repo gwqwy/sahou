@@ -1,9 +1,9 @@
-// sahou（卅）命令行入口。
+// 卅命令行入口。
 //
 //	sahou run 程序.saho   运行一个程序
 //	sahou tokens 程序.saho  打印记号流（调试用）
 //	sahou ast 程序.saho    打印语法树（调试用）
-//	sahou                进入交互环境（REPL）
+//	卅                进入交互环境（REPL）
 package main
 
 import (
@@ -63,7 +63,7 @@ func main() {
 		}
 		formatFile(rest[0])
 	case "version", "版本":
-		fmt.Println("sahou（卅）v0.1 —— 全栈 + 应用 + 工程化（数据库/会话/原生窗口/打包/测试/LSP 补全）")
+		fmt.Println("卅 v0.1 —— 全栈 + 应用 + 工程化（数据库/会话/原生窗口/打包/测试/LSP 补全）")
 		fmt.Println("23 个关键字 · 30 个内置函数 · 11 个标准库模块")
 	case "装", "install":
 		stonesInstall(rest)
@@ -84,7 +84,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Print(`sahou（卅）— 比 Python 更简单一点的入门语言
+	fmt.Print(`卅— 比 Python 更简单一点的入门语言
 
 用法:
   sahou run 程序.saho      运行程序
@@ -97,7 +97,7 @@ func usage() {
   sahou lsp                语言服务（编辑器实时诊断+补全，stdio）
   sahou 格式 程序.saho     格式化（重排缩进，就地保存）
   sahou 打包 应用.saho -o 应用.exe  生成独立可执行文件（内嵌脚本，资产目录随 exe 分发）
-  sahou                    交互环境
+  卅                    交互环境
 `)
 	os.Exit(0)
 }
@@ -152,7 +152,7 @@ func packApp(scriptPath, outPath string) {
 	}
 	repoRoot := findRepoRoot()
 	if repoRoot == "" {
-		fmt.Println("找不到 sahou 源码根目录（要有 go.mod）；请在仓库内运行 sahou。")
+		fmt.Println("找不到 卅 源码根目录（要有 go.mod）；请在仓库内运行 卅。")
 		os.Exit(2)
 	}
 	srcData, rerr := encodesrc.ReadFile(scriptPath)
@@ -160,7 +160,7 @@ func packApp(scriptPath, outPath string) {
 		fmt.Println(rerr.Error())
 		os.Exit(2)
 	}
-	tmp, err := os.MkdirTemp("", "sahou-pack-*")
+	tmp, err := os.MkdirTemp("", "卅-pack-*")
 	if err != nil {
 		fmt.Println("建不了临时目录：", err)
 		os.Exit(2)
@@ -225,7 +225,7 @@ func main() {
 		fmt.Println("写不了 main.go：", werr)
 		os.Exit(2)
 	}
-	// internal 包不允许跨模块引用：把 sahou 源码复制进临时工程，同一模块内打包
+	// internal 包不允许跨模块引用：把 卅 源码复制进临时工程，同一模块内打包
 	for _, dir := range []string{"internal", "cmd"} {
 		if err := copyDir(dir, filepath.Join(tmp, dir)); err != nil {
 			fmt.Println("复制源码失败：", err)
@@ -234,7 +234,7 @@ func main() {
 	}
 	// go.mod/go.sum：沿用本仓库的依赖（只换模块名），保证离线可构建
 	gomodData, _ := os.ReadFile(filepath.Join(repoRoot, "go.mod"))
-	gomodStr := strings.Replace(string(gomodData), "module sahou", "module sahouapp", 1)
+	gomodStr := strings.Replace(string(gomodData), "module 卅", "module 卅app", 1)
 	gomodStr = gomodStr + "\n"
 	if werr := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(gomodStr), 0o644); werr != nil {
 		fmt.Println("写不了 go.mod：", werr)
@@ -243,8 +243,8 @@ func main() {
 	if gosum, _ := os.ReadFile(filepath.Join(repoRoot, "go.sum")); gosum != nil {
 		_ = os.WriteFile(filepath.Join(tmp, "go.sum"), gosum, 0o644)
 	}
-	// 同一模块内引用：所有源码的 sahou/internal 前缀改成 sahouapp/internal
-	mainGo = strings.ReplaceAll(mainGo, "\"sahou/internal/", "\"sahouapp/internal/")
+	// 同一模块内引用：所有源码的 卅/internal 前缀改成 卅app/internal
+	mainGo = strings.ReplaceAll(mainGo, "\"sahou/internal/", "\"卅app/internal/")
 	_ = os.WriteFile(filepath.Join(tmp, "main.go"), []byte(mainGo), 0o644)
 	_ = filepath.WalkDir(tmp, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
@@ -254,7 +254,7 @@ func main() {
 		if rerr != nil {
 			return nil
 		}
-		fixed := strings.ReplaceAll(string(data), "\"sahou/internal/", "\"sahouapp/internal/")
+		fixed := strings.ReplaceAll(string(data), "\"sahou/internal/", "\"卅app/internal/")
 		if fixed != string(data) {
 			_ = os.WriteFile(path, []byte(fixed), 0o644)
 		}
@@ -284,7 +284,7 @@ func main() {
 	fmt.Printf("已打包 %s。\n分发时把脚本用到的资产目录（如 应用页面/、stones/、*.db）放在 exe 旁边即可。\n", absOut)
 }
 
-// findRepoRoot 从当前目录向上找 sahou 源码根（含 go.mod 且 module 名为 sahou）。
+// findRepoRoot 从当前目录向上找 卅 源码根（含 go.mod 且 module 名为 卅）。
 func findRepoRoot() string {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -292,7 +292,7 @@ func findRepoRoot() string {
 	}
 	for {
 		data, rerr := os.ReadFile(filepath.Join(dir, "go.mod"))
-		if rerr == nil && strings.Contains(string(data), "module sahou") {
+		if rerr == nil && strings.Contains(string(data), "module 卅") {
 			return dir
 		}
 		parent := filepath.Dir(dir)
@@ -396,7 +396,7 @@ func dump(cmd, path string) {
 }
 
 func repl() {
-	fmt.Println("sahou（卅）交互环境 — 输入完一行语句会立刻执行；写函数/如果 等块时按回车继续输入，单独一行 完毕 结束块。退出请按 Ctrl+C。")
+	fmt.Println("卅交互环境 — 输入完一行语句会立刻执行；写函数/如果 等块时按回车继续输入，单独一行 完毕 结束块。退出请按 Ctrl+C。")
 	in := interp.New()
 	in.ScriptDir, _ = os.Getwd()
 	std := bufio.NewReaderSize(os.Stdin, 1<<16)
@@ -409,7 +409,7 @@ func repl() {
 	var pending []string
 	for {
 		if len(pending) == 0 {
-			fmt.Print("sahou> ")
+			fmt.Print("卅> ")
 		} else {
 			fmt.Print("  ...> ")
 		}
@@ -673,7 +673,7 @@ func verifyStones() {
 	}
 }
 
-// serveDir 起一个静态文件服务（跑 sahou.wasm 网页用）。
+// serveDir 起一个静态文件服务（跑 卅.wasm 网页用）。
 func serveDir(args []string) {
 	dir := "."
 	if len(args) > 0 {

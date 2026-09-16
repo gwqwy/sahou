@@ -1,5 +1,5 @@
 # 手机端应用（v1.7 应用模块）：同一份页面，监听局域网，手机连同一 Wi-Fi 打开即可。
-# 运行：./sahou.exe run examples/手机应用.saho  —— 按提示用手机浏览器打开打印的网址。
+# 运行：./卅.exe run examples/手机应用.saho  —— 按提示用手机浏览器打开打印的网址。
 模板 = "<!doctype html><html><head><meta charset='utf-8'>"
 模板 = 模板 + "<meta name='viewport' content='width=device-width, initial-scale=1'>"
 模板 = 模板 + "<title>[[标题]]</title></head><body><h1>[[标题]]</h1>"

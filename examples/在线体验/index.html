@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>卅 sahou · 在线体验</title>
+  <title>卅 卅 · 在线体验</title>
   <link rel="icon" href="../网页/favicon.svg" type="image/svg+xml">
   <style>
     :root { --brand:#4F46E5; --brand2:#0EA5E9; --ink:#0f172a; --muted:#64748b; }
@@ -39,8 +39,8 @@
   <header>
     <img src="../网页/favicon.svg" alt="">
     <div>
-      <h1>卅 sahou · 在线体验</h1>
-      <div class="sub">左边写 sahou，点运行，右边看输出 —— sahou.wasm 在你的浏览器里直接解释执行</div>
+      <h1>卅 卅 · 在线体验</h1>
+      <div class="sub">左边写 卅，点运行，右边看输出 —— 卅.wasm 在你的浏览器里直接解释执行</div>
     </div>
     <div class="spacer"></div>
     <button class="run" id="运行" disabled>▶ 运行（Ctrl+Enter）</button>
@@ -60,8 +60,8 @@
 
   <script src="wasm_exec.js"></script>
   <script>
-    const 默认代码 = `# 卅（sahou）—— 比Python更简单一点的入门语言
-# 这段代码正在你的浏览器里被 sahou.wasm 直接解释执行
+    const 默认代码 = `# 卅（卅）—— 比Python更简单一点的入门语言
+# 这段代码正在你的浏览器里被 卅.wasm 直接解释执行
 
 # ── 管道：数据像石子一样流动 ──
 名单 = [3, 1, 2]
@@ -87,7 +87,7 @@ print("你好，{1 + 2}！")
     let ready = false;
 
     async function 启动() {
-      const bytes = await (await fetch("sahou.wasm")).arrayBuffer();
+      const bytes = await (await fetch("卅.wasm")).arrayBuffer();
       const go = new Go();
       const r = await WebAssembly.instantiate(bytes, go.importObject);
       go.run(r.instance);
@@ -98,7 +98,7 @@ print("你好，{1 + 2}！")
 
     function 运行() {
       if (!ready) return;
-      const raw = globalThis.__sahou_run(代码框.value);
+      const raw = globalThis.__卅_run(代码框.value);
       let r;
       try { r = JSON.parse(raw); } catch (e) { r = { output: raw }; }
       let html = "";

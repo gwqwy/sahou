@@ -1,4 +1,4 @@
-# sahou（卅）· VS Code 接入指南
+# 卅· VS Code 接入指南
 
 > 面向普通 VS Code 用户。三种接入方式，按**从简到全**排列：
 > 只想看到高亮 → 走**方式一**；写扩展本身 → 走**方式二**；要实时语法诊断 → 走**方式三**。
@@ -8,17 +8,17 @@
 
 ## 0. 先认识扩展目录里有什么
 
-sahou 的 VS Code 支持住在仓库的 `editors/vscode/sahou/` 目录里，它是一个**零 npm 依赖**的自包含扩展：
+卅 的 VS Code 支持住在仓库的 `editors/vscode/sahou/` 目录里，它是一个**零 npm 依赖**的自包含扩展：
 
 | 文件 | 作用 |
 |---|---|
 | `package.json` | 扩展清单。注册语言 **id 为 `sahou`**，关联文件扩展名 **`.saho`**；声明命令 `sahou.run` 与扩展设置 `sahou.path` |
-| `syntaxes/sahou.tmLanguage.json` | TextMate 语法：**双语关键字、内置函数、模块名、注释、字符串插值、数字**的着色规则 |
+| `syntaxes/卅.tmLanguage.json` | TextMate 语法：**双语关键字、内置函数、模块名、注释、字符串插值、数字**的着色规则 |
 | `language-configuration.json` | 编辑器基础行为：**括号配对、注释切换、自动闭合**（引号与括号） |
-| `snippets/sahou.json` | 代码片段：**函数 / 如果 / 当 / 遍历 / 尝试 / 引入** |
-| `extension.js` | 扩展主代码，无 npm 依赖。注册 `sahou.run` 命令（在终端运行当前文件），并内置一个**极简 LSP 客户端**：启动 `<sahou 路径> lsp` 获取实时诊断与补全（v1.8 起） |
+| `snippets/卅.json` | 代码片段：**函数 / 如果 / 当 / 遍历 / 尝试 / 引入** |
+| `extension.js` | 扩展主代码，无 npm 依赖。注册 `sahou.run` 命令（在终端运行当前文件），并内置一个**极简 LSP 客户端**：启动 `<卅 路径> lsp` 获取实时诊断与补全（v1.8 起） |
 
-另外，仓库的 `.vscode/tasks.json` 里有一个现成的构建任务：**“运行当前 sahou 文件”**。
+另外，仓库的 `.vscode/tasks.json` 里有一个现成的构建任务：**“运行当前 卅 文件”**。
 
 记住一句话即可：**扩展负责“看得舒服 + 跑得方便”，诊断与补全能力来自解释器 `sahou.exe` 的 `lsp` 子命令。**
 
@@ -33,19 +33,19 @@ sahou 的 VS Code 支持住在仓库的 `editors/vscode/sahou/` 目录里，它�
 
 1. 找到扩展目录：仓库里的 `editors\vscode\sahou`。
 2. 打开资源管理器地址栏，输入 `%USERPROFILE%\.vscode\extensions` 回车（没有 `extensions` 文件夹就手动建一个）。
-3. 把整个 `sahou` 文件夹**复制**进去。
+3. 把整个 `卅` 文件夹**复制**进去。
 4. 回到 VS Code，按 `Ctrl+Shift+P` 打开命令面板，运行 **“开发人员: 重新加载窗口”**。
-5. 打开任意 `.saho` 文件，右下角语言模式应显示 **sahou**，关键字开始上色。
+5. 打开任意 `.saho` 文件，右下角语言模式应显示 **卅**，关键字开始上色。
 
 用 PowerShell 一行完成复制（把仓库路径换成你自己的）：
 
 ```powershell
-Copy-Item -Recurse -Force "E:\文件\代码系统\editors\vscode\sahou" "$env:USERPROFILE\.vscode\extensions\sahou"
+Copy-Item -Recurse -Force "E:\文件\代码系统\editors\vscode\sahou" "$env:USERPROFILE\.vscode\extensions\卅"
 ```
 
-复制后如需生效更稳，可把目标文件夹改名为“扩展名-版本号”的形式（例如 `sahou-1.0.0`），再重载窗口。
+复制后如需生效更稳，可把目标文件夹改名为“扩展名-版本号”的形式（例如 `卅-1.0.0`），再重载窗口。
 
-**这一种方式能得到什么**：语言关联（`.saho` → sahou）、语法高亮、括号与注释智能、代码片段。
+**这一种方式能得到什么**：语言关联（`.saho` → 卅）、语法高亮、括号与注释智能、代码片段。
 **暂时得不到什么**：实时语法诊断（那要有可用的 `sahou.exe`，见方式三）。
 
 ---
@@ -63,9 +63,9 @@ Copy-Item -Recurse -Force "E:\文件\代码系统\editors\vscode\sahou" "$env:US
 
 ---
 
-## 3. 方式三（完整）：配置 sahou.path，开启实时语法诊断
+## 3. 方式三（完整）：配置 卅.path，开启实时语法诊断
 
-扩展内置了一个**极简 LSP 客户端**。它的工作方式是：启动 `<sahou 路径> lsp`，
+扩展内置了一个**极简 LSP 客户端**。它的工作方式是：启动 `<卅 路径> lsp`，
 通过 **stdio 上的 JSON-RPC** 与解释器通信；解释器返回**打开与修改文件时的语法诊断**（v1.8 起编辑器请求补全时还会给出关键字/内置函数/模块名清单），
 于是编辑器里出现红色/黄色的波浪线，鼠标悬停可看双语错误信息。
 
@@ -75,20 +75,20 @@ Copy-Item -Recurse -Force "E:\文件\代码系统\editors\vscode\sahou" "$env:US
 - 先确认它能跑：在终端执行 `sahou.exe run examples\入门演示.saho`。
 - 再确认 `lsp` 子命令能启动：执行 `sahou.exe lsp`（它会以服务方式等待标准输入，属于正常现象，`Ctrl+C` 退出）。
 
-### 3.2 在设置里填 sahou 路径
+### 3.2 在设置里填 卅 路径
 
 打开 **文件 → 首选项 → 设置**（`Ctrl+,`），搜索 `sahou`，在 **Sahou: Path** 里填写 `sahou.exe` 的完整路径；
 或直接编辑 `settings.json`：
 
 ```json
 {
-  "sahou.path": "E:\\文件\\代码系统\\sahou.exe"
+  "卅.path": "E:\\文件\\代码系统\\sahou.exe"
 }
 ```
 
 - 建议写**绝对路径**，避免因 PATH 没配好而找不到解释器。
 - Windows 路径里的反斜杠在 JSON 中要写成 `\\`。
-- 如果 `sahou.exe` 已经在系统 PATH 里，也可以只填 `sahou`。
+- 如果 `sahou.exe` 已经在系统 PATH 里，也可以只填 `卅`。
 - 改完设置后，**重载窗口**，再打开 `.saho` 文件。
 
 ### 3.3 效果
@@ -114,11 +114,11 @@ sahou.exe                        # 进入交互环境（REPL）
 
 **B. `.vscode/tasks.json` 的运行任务**：
 
-仓库里的 `.vscode/tasks.json` 提供了一个名为 **“运行当前 sahou 文件”** 的任务，
+仓库里的 `.vscode/tasks.json` 提供了一个名为 **“运行当前 卅 文件”** 的任务，
 它在集成终端中调用解释器运行当前编辑器里的文件。用法：
 
 - 按 `Ctrl+Shift+B` 运行默认构建任务；
-- 或 `Ctrl+Shift+P` → **Tasks: Run Task（任务: 运行任务）** → 选择 **运行当前 sahou 文件**。
+- 或 `Ctrl+Shift+P` → **Tasks: Run Task（任务: 运行任务）** → 选择 **运行当前 卅 文件**。
 
 想给它绑一个顺手的快捷键：`Ctrl+K Ctrl+S` 打开键盘快捷方式，搜索 **运行任务**（Run Task），
 自行分配组合键即可。这样“写代码 → 存盘 → 一键运行”就在同一个窗口里闭环了。
@@ -127,7 +127,7 @@ sahou.exe                        # 进入交互环境（REPL）
 
 ## 4. 语法高亮会着色哪些东西
 
-`syntaxes/sahou.tmLanguage.json` 按下面的类别着色，因此打开 `.saho` 文件后你会看到：
+`syntaxes/卅.tmLanguage.json` 按下面的类别着色，因此打开 `.saho` 文件后你会看到：
 
 | 着色类别 | 说明与例子 |
 |---|---|
@@ -141,7 +141,7 @@ sahou.exe                        # 进入交互环境（REPL）
 配合 `language-configuration.json`：括号/引号输入时**自动闭合**，选中内容按括号键可**环绕**，
 行注释切换（`Ctrl+/`）按 `#` 处理——这些都不需要额外配置。
 
-代码片段来自 `snippets/sahou.json`，输入前缀即可展开骨架（**函数 / 如果 / 当 / 遍历 / 尝试 / 引入**），
+代码片段来自 `snippets/卅.json`，输入前缀即可展开骨架（**函数 / 如果 / 当 / 遍历 / 尝试 / 引入**），
 例如输入 `函数` 触发后，会补出函数定义框架，把光标停在函数名位置，省去手打 `完毕` 收尾的麻烦。
 
 ---
@@ -149,11 +149,11 @@ sahou.exe                        # 进入交互环境（REPL）
 ## 5. 常见问题（FAQ）
 
 **Q1：`.saho` 文件没有被识别，没有高亮。**
-先确认扩展已启用：`Ctrl+Shift+X` 打开扩展面板，搜索 sahou，若无条目说明扩展目录没放对或没重载窗口。
-其次检查文件关联：打开 `.saho` 文件后点右下角语言模式，选 **sahou**；或在 `settings.json` 里加：
+先确认扩展已启用：`Ctrl+Shift+X` 打开扩展面板，搜索 卅，若无条目说明扩展目录没放对或没重载窗口。
+其次检查文件关联：打开 `.saho` 文件后点右下角语言模式，选 **卅**；或在 `settings.json` 里加：
 
 ```json
-{ "files.associations": { "*.saho": "sahou" } }
+{ "files.associations": { "*.saho": "卅" } }
 ```
 
 若扩展列表里出现但被禁用，点“启用”后重载窗口。
@@ -161,14 +161,14 @@ sahou.exe                        # 进入交互环境（REPL）
 **Q2：没有语法错误波浪线（诊断不出现）。**
 按顺序排查：
 1. 设置里的 `sahou.path` 是否指向真实存在的 `sahou.exe`（绝对路径最稳）；
-2. 在终端**手动运行** `<sahou 路径> lsp`，确认进程能启动、不报“未知子命令”之类的错误；
+2. 在终端**手动运行** `<卅 路径> lsp`，确认进程能启动、不报“未知子命令”之类的错误；
 3. 改完设置后是否**重载了窗口**；
 4. 打开的是不是 `.saho` 文件（其他后缀不会触发该语言的诊断）；
 5. 文件本身确实没有语法错误——诊断只在有问题时标出。
 另外，诊断能力来自解释器的 `lsp` 子命令；如果你的 `sahou.exe` 版本较旧（构建早于该子命令加入），
 请用仓库里最新的 `sahou.exe`，或重新构建后再试。
 
-**Q3：集成终端里运行 sahou 输出中文乱码。**
+**Q3：集成终端里运行 卅 输出中文乱码。**
 这是 Windows 终端代码页的问题，不是语言或扩展的问题。先执行：
 
 ```powershell
@@ -195,7 +195,7 @@ chcp 65001
 后续要走的深化方向是**把语言服务器做厚**：
 
 - **代码补全**：根据当前作用域给出内置函数、模块成员、顶层名字的候选；
-- **跳转到定义 / 查找引用**：在 `sahou 函数` 定义与调用之间直接跳转，支持跨模块（`用 "工具" 引入` 后跳进 `工具.saho`）；
+- **跳转到定义 / 查找引用**：在 `卅 函数` 定义与调用之间直接跳转，支持跨模块（`用 "工具" 引入` 后跳进 `工具.saho`）；
 - **悬停提示与文档**：悬停显示内置函数签名与用法；
 - **更细的诊断分级**：把“你是不是想写”的建议以 Quick Fix 形式给出，一键改写；
 - **模块与 stones 感知**：解析 stones 包路径，让跳转能进 `stones/` 目录。
@@ -213,6 +213,6 @@ chcp 65001
 | 立刻有高亮 | 复制 `editors\vscode\sahou` 到 `%USERPROFILE%\.vscode\extensions\`，重载窗口 |
 | 改扩展本身 | VS Code 打开 `editors/vscode/sahou`，按 F5 |
 | 实时语法诊断 | 配好 `sahou.path` → 重载窗口 → 打开 `.saho` 文件 |
-| 运行当前文件 | `Ctrl+Shift+P` → Sahou: 运行当前文件（`sahou.run`），或运行任务“运行当前 sahou 文件” |
+| 运行当前文件 | `Ctrl+Shift+P` → Sahou: 运行当前文件（`sahou.run`），或运行任务“运行当前 卅 文件” |
 | 终端乱码 | `chcp 65001` |
 | 没有波浪线 | 查 `sahou.path`、手动试 `sahou lsp`、重载窗口 |
