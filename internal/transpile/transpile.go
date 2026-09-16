@@ -63,6 +63,7 @@ var builtinJS = map[string]string{
 	"分割": "__saho_split", "split": "__saho_split",
 	"替换": "__saho_replace", "replace": "__saho_replace",
 	"修剪": "__saho_trim", "trim": "__saho_trim",
+	"位置": "__saho_find", "find": "__saho_find",
 	"转大写": "__saho_upper", "upper": "__saho_upper",
 	"转小写": "__saho_lower", "lower": "__saho_lower",
 	"绝对值": "__saho_abs", "abs": "__saho_abs",

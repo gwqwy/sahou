@@ -552,6 +552,12 @@ function __saho_trim(text) {
   if (typeof text !== "string") throw { __saho: true, message: "修剪() 的参数要是文本。" };
   return text.trim();
 }
+function __saho_find(text, sub) {
+  if (typeof text !== "string" || typeof sub !== "string") {
+    throw { __saho: true, message: "位置() 的两个参数都要是文本。" };
+  }
+  return text.indexOf(sub);
+}
 function __saho_upper(text) {
   if (typeof text !== "string") throw { __saho: true, message: "转大写() 的参数要是文本。" };
   return text.toUpperCase();
@@ -591,6 +597,12 @@ function __saho_replace(text, oldS, newS) {
 function __saho_trim(text) {
   if (typeof text !== "string") throw { __saho: true, message: "修剪() 的参数要是文本。" };
   return text.trim();
+}
+function __saho_find(text, sub) {
+  if (typeof text !== "string" || typeof sub !== "string") {
+    throw { __saho: true, message: "位置() 的两个参数都要是文本。" };
+  }
+  return text.indexOf(sub);
 }
 function __saho_upper(text) {
   if (typeof text !== "string") throw { __saho: true, message: "转大写() 的参数要是文本。" };

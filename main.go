@@ -65,7 +65,7 @@ func main() {
 		formatFile(rest[0])
 	case "version", "版本":
 		fmt.Println("卅 v0.1 —— 全栈 + 应用 + 工程化（数据库/会话/写页面/原生窗口/打包/测试/LSP 补全）")
-		fmt.Println("23 个关键字 · 30 个内置函数 · 11 个标准库模块 · 7 个自带 stones 包")
+		fmt.Println("23 个关键字 · 30 个内置函数 · 11 个标准库模块 · 10 个自带 stones 包")
 	case "装", "install":
 		stonesInstall(rest)
 	case "stones", "库":
