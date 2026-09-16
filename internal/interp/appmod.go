@@ -53,6 +53,43 @@ func appModule() *Dict {
 		}
 		return serveApp(in.ScriptPath(dir), "127.0.0.1", port, silent, line)
 	})
+	// 应用.原生窗口(目录, 标题, 宽: 1000, 高: 700)：WebView2 真窗口（无浏览器地址栏）
+	m.fn("原生窗口", "native_window", [][]string{{"目录!"}, {"标题", "title"}, {"宽", "width"}, {"高", "height"}}, func(in *Interp, args []Value, line int) (Value, *errs.Error) {
+		dir, e := needTextArg(args, 0, "应用", "原生窗口", line)
+		if e != nil {
+			return nil, e
+		}
+		title := dir
+		if a, ok := opt(args, 1); ok {
+			if t, ok2 := a.(string); ok2 {
+				title = t
+			}
+		}
+		w, h := 1000, 700
+		if _, ok := opt(args, 2); ok {
+			if n, e := needIntMod(args, 2, "应用", "原生窗口", line); e == nil {
+				w = n
+			} else {
+				return nil, e
+			}
+		}
+		if _, ok := opt(args, 3); ok {
+			if n, e := needIntMod(args, 3, "应用", "原生窗口", line); e == nil {
+				h = n
+			} else {
+				return nil, e
+			}
+		}
+		port, err := freePort("127.0.0.1")
+		if err != nil {
+			return nil, errs.RuntimeHint("找不到空闲端口。", "no free port found.", "", line)
+		}
+		url := fmt.Sprintf("http://127.0.0.1:%d/", port)
+		handler := http.FileServer(http.Dir(in.ScriptPath(dir)))
+		go func() { _ = http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", port), handler) }()
+		runNativeWindow(url, title, w, h)
+		return nil, nil
+	})
 	// 应用.手机(目录, 端口: 8000)：手机端——监听局域网并打印手机可访问的网址
 	m.fn("手机", "mobile", [][]string{{"目录!"}, {"端口", "port"}}, func(in *Interp, args []Value, line int) (Value, *errs.Error) {
 		dir, e := needTextArg(args, 0, "应用", "手机", line)

@@ -7,15 +7,20 @@
 package main
 
 import (
+	"archive/zip"
 	"bufio"
+	"bytes"
+	"io"
 	"net/http"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"sahou/internal/encodesrc"
 	"sahou/internal/errs"
+	"sahou/internal/format"
 	"sahou/internal/interp"
 	"sahou/internal/lsp"
 	"sahou/internal/lexer"
@@ -47,6 +52,16 @@ func main() {
 			usage()
 		}
 		buildJS(rest[0], flagValue(rest, "-o"))
+	case "打包", "pack":
+		if len(rest) < 1 {
+			usage()
+		}
+		packApp(rest[0], flagValue(rest, "-o"))
+	case "格式", "fmt":
+		if len(rest) < 1 {
+			usage()
+		}
+		formatFile(rest[0])
 	case "version", "版本":
 		fmt.Println("sahou（卅）4.3.0 —— v4 响应式计算模型 + wasm 直接运行 + 全栈与应用（表单/会话/数据库/桌面/手机端）")
 		fmt.Println("23 个关键字 · 30 个内置函数 · 10 个标准库模块")
@@ -79,7 +94,9 @@ func usage() {
   sahou 装 <本地路径>      安装一个包（stones/ 目录 + stones.yml 清单）
   sahou 装                 校验 stones.yml 里的包是否齐全
   sahou serve [目录]       起本地静态服务（默认 8000 端口，跑 wasm 网页用）
-  sahou lsp                语言服务（编辑器实时诊断，stdio）
+  sahou lsp                语言服务（编辑器实时诊断+补全，stdio）
+  sahou 格式 程序.saho     格式化（重排缩进，就地保存）
+  sahou 打包 应用.saho -o 应用.exe  生成独立可执行文件（内嵌脚本，资产目录随 exe 分发）
   sahou                    交互环境
 `)
 	os.Exit(0)
@@ -124,6 +141,181 @@ func buildJS(inPath, outPath string) {
 		os.Exit(2)
 	}
 	fmt.Printf("已生成 %s（%d 字节）。\n", outPath, len(js))
+}
+
+// packApp sahou 打包 应用.saho -o 应用.exe：生成独立可执行文件。
+// 做法：临时 Go 工程内嵌 .saho 脚本（go:embed），replace 指向本仓库源码，go build 出单文件 exe。
+// exe 启动时把脚本目录设为 exe 所在目录——静态资产（应用页面/、stones/ 等）随 exe 一起分发即可。
+func packApp(scriptPath, outPath string) {
+	if outPath == "" {
+		outPath = strings.TrimSuffix(filepath.Base(scriptPath), ".saho") + ".exe"
+	}
+	repoRoot := findRepoRoot()
+	if repoRoot == "" {
+		fmt.Println("找不到 sahou 源码根目录（要有 go.mod）；请在仓库内运行 sahou。")
+		os.Exit(2)
+	}
+	srcData, rerr := encodesrc.ReadFile(scriptPath)
+	if rerr != nil {
+		fmt.Println(rerr.Error())
+		os.Exit(2)
+	}
+	tmp, err := os.MkdirTemp("", "sahou-pack-*")
+	if err != nil {
+		fmt.Println("建不了临时目录：", err)
+		os.Exit(2)
+	}
+	defer os.RemoveAll(tmp)
+	if werr := os.WriteFile(filepath.Join(tmp, "main.saho"), []byte(srcData), 0o644); werr != nil {
+		fmt.Println("写不了临时脚本：", werr)
+		os.Exit(2)
+	}
+	mainGo := `package main
+
+import (
+	"bufio"
+	_ "embed"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"sahou/internal/errs"
+	"sahou/internal/interp"
+	"sahou/internal/lexer"
+	"sahou/internal/parser"
+)
+
+//go:embed main.saho
+var src string
+
+func main() {
+	toks, e := lexer.Tokenize(src)
+	if e != nil {
+		fmt.Println(errs.Format(e))
+		os.Exit(2)
+	}
+	prog, e := parser.Parse(toks)
+	if e != nil {
+		fmt.Println(errs.Format(e))
+		os.Exit(2)
+	}
+	exe := os.Args[0]
+	if abs, err := filepath.Abs(exe); err == nil {
+		exe = abs
+	}
+	in := interp.New()
+	in.ScriptDir = filepath.Dir(exe) // 资产目录按 exe 所在目录算
+	std := bufio.NewReader(os.Stdin)
+	in.Input = func(prompt string) string {
+		fmt.Print(prompt)
+		line, _ := std.ReadString('\n')
+		return strings.TrimRight(line, "\r\n")
+	}
+	if e := in.Run(prog); e != nil {
+		fmt.Fprintln(os.Stderr, errs.FormatUncaught(e, in.Chain()))
+		os.Exit(1)
+	}
+	if code := in.ExitCode; code >= 0 {
+		os.Exit(code)
+	}
+}
+`
+	if werr := os.WriteFile(filepath.Join(tmp, "main.go"), []byte(mainGo), 0o644); werr != nil {
+		fmt.Println("写不了 main.go：", werr)
+		os.Exit(2)
+	}
+	// internal 包不允许跨模块引用：把 sahou 源码复制进临时工程，同一模块内打包
+	for _, dir := range []string{"internal", "cmd"} {
+		if err := copyDir(dir, filepath.Join(tmp, dir)); err != nil {
+			fmt.Println("复制源码失败：", err)
+			os.Exit(2)
+		}
+	}
+	// go.mod/go.sum：沿用本仓库的依赖（只换模块名），保证离线可构建
+	gomodData, _ := os.ReadFile(filepath.Join(repoRoot, "go.mod"))
+	gomodStr := strings.Replace(string(gomodData), "module sahou", "module sahouapp", 1)
+	gomodStr = gomodStr + "\n"
+	if werr := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte(gomodStr), 0o644); werr != nil {
+		fmt.Println("写不了 go.mod：", werr)
+		os.Exit(2)
+	}
+	if gosum, _ := os.ReadFile(filepath.Join(repoRoot, "go.sum")); gosum != nil {
+		_ = os.WriteFile(filepath.Join(tmp, "go.sum"), gosum, 0o644)
+	}
+	// 同一模块内引用：所有源码的 sahou/internal 前缀改成 sahouapp/internal
+	mainGo = strings.ReplaceAll(mainGo, "\"sahou/internal/", "\"sahouapp/internal/")
+	_ = os.WriteFile(filepath.Join(tmp, "main.go"), []byte(mainGo), 0o644)
+	_ = filepath.WalkDir(tmp, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return err
+		}
+		data, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return nil
+		}
+		fixed := strings.ReplaceAll(string(data), "\"sahou/internal/", "\"sahouapp/internal/")
+		if fixed != string(data) {
+			_ = os.WriteFile(path, []byte(fixed), 0o644)
+		}
+		return nil
+	})
+	// 仓库根的 main.go 会与生成的主程序冲突：临时工程里只留 internal
+	_ = os.Remove(filepath.Join(tmp, "main_root.go"))
+	if abs, err := filepath.Abs(outPath); err == nil {
+		outPath = abs // go build 在临时目录里跑，-o 必须给绝对路径
+	}
+	fmt.Printf("正在编译 %s …\n", outPath)
+	cmd := exec.Command("go", "mod", "tidy")
+	cmd.Dir = tmp
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Printf("go mod tidy 失败：%v\n%s\n", err, out)
+		os.Exit(2)
+	}
+	cmd = exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w", "-o", outPath)
+	cmd.Dir = tmp
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Println("go build 失败：", err)
+		os.Exit(2)
+	}
+	absOut, _ := filepath.Abs(outPath)
+	fmt.Printf("已打包 %s。\n分发时把脚本用到的资产目录（如 应用页面/、stones/、*.db）放在 exe 旁边即可。\n", absOut)
+}
+
+// findRepoRoot 从当前目录向上找 sahou 源码根（含 go.mod 且 module 名为 sahou）。
+func findRepoRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		data, rerr := os.ReadFile(filepath.Join(dir, "go.mod"))
+		if rerr == nil && strings.Contains(string(data), "module sahou") {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// formatFile sahou 格式 文件.saho：保守格式化（只重排缩进），就地保存。
+func formatFile(path string) {
+	src, rerr := encodesrc.ReadFile(path)
+	if rerr != nil {
+		fmt.Println(rerr.Error())
+		os.Exit(2)
+	}
+	out := format.Source(string(src))
+	if werr := os.WriteFile(path, []byte(out), 0o644); werr != nil {
+		fmt.Printf("写不进 %s：%v\n", path, werr)
+		os.Exit(2)
+	}
+	fmt.Printf("已格式化 %s（%d 字节）。\n", path, len(out))
 }
 
 type compiler struct{ prog *parser.Program }
@@ -278,9 +470,8 @@ func stonesInstall(args []string) {
 	}
 	src := args[0]
 	if strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://") {
-		fmt.Println("远程仓库 v2 后期才会提供；现在请给一个本地路径（包目录或单个 .saho 文件）。")
-		fmt.Println("remote registries are not available yet; pass a local path.")
-		os.Exit(2)
+		installRemoteZip(src)
+		return
 	}
 	st, err := os.Stat(src)
 	if err != nil {
@@ -315,6 +506,85 @@ func stonesInstall(args []string) {
 	}
 	addStonesYML(name)
 	fmt.Printf("已安装包 %s 到 stones/，现在可以 用 \"%s\" 引入。\n", name, name)
+}
+
+// installRemoteZip `sahou 装 https://…/包名.zip`：下载 zip 并解压进 stones/包名。
+// zip 里可以有一个顶层目录（常见于压缩文件夹），会自动剥掉。
+func installRemoteZip(url string) {
+	name := strings.TrimSuffix(filepath.Base(url), ".zip")
+	if name == "" || name == "." {
+		fmt.Println("从网址上看不出包名；请让文件名是 包名.zip。")
+		os.Exit(2)
+	}
+	fmt.Printf("正在下载 %s …\n", url)
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Printf("下载失败：%v\n", err)
+		os.Exit(2)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		fmt.Printf("下载失败：服务器返回 %d。\n", resp.StatusCode)
+		os.Exit(2)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Printf("下载失败：%v\n", err)
+		os.Exit(2)
+	}
+	zipr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		fmt.Println("这不是一个有效的 zip 文件。")
+		os.Exit(2)
+	}
+	// 剥掉可选的顶层目录
+	prefix := ""
+	for _, f := range zipr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		parts := strings.SplitN(f.Name, "/", 2)
+		if len(parts) == 2 && parts[0] != "" {
+			prefix = parts[0] + "/"
+		}
+		break
+	}
+	dst := filepath.Join("stones", name)
+	if err := os.RemoveAll(dst); err == nil || os.IsNotExist(err) {
+	}
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		fmt.Printf("建不了 stones 目录：%v\n", err)
+		os.Exit(2)
+	}
+	n := 0
+	for _, f := range zipr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		rel := strings.TrimPrefix(f.Name, prefix)
+		if rel == "" || strings.Contains(rel, "..") {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		content, _ := io.ReadAll(rc)
+		rc.Close()
+		target := filepath.Join(dst, filepath.FromSlash(rel))
+		_ = os.MkdirAll(filepath.Dir(target), 0o755)
+		if werr := os.WriteFile(target, content, 0o644); werr != nil {
+			fmt.Printf("写不了 %s：%v\n", target, werr)
+			os.Exit(2)
+		}
+		n++
+	}
+	if n == 0 {
+		fmt.Println("zip 里没有文件。")
+		os.Exit(2)
+	}
+	addStonesYML(name)
+	fmt.Printf("已安装包 %s（%d 个文件）到 stones/，现在可以 用 \"%s\" 引入。\n", name, n, name)
 }
 
 func copyDir(src, dst string) error {

@@ -25,10 +25,26 @@ import (
 
 // ---------- 库对象 ----------
 
-// dbTable 一张表：列名顺序 + 行（每行是按列序的值序列）。
+// dbTable 一张表：列名顺序 + 行（每行是按列序的值序列）+ 自增列。
 type dbTable struct {
-	cols []string
-	rows [][]Value
+	cols     []string
+	autoCols map[string]bool // 自增列：插入不给值（空值）时自动取 全表最大+1
+	rows     [][]Value
+}
+
+func (t *dbTable) nextAuto(col string) int {
+	idx := colIndex(t, col)
+	max := 0
+	for _, row := range t.rows {
+		if idx < len(row) {
+			if r, ok := row[idx].(*big.Rat); ok && r.IsInt() {
+				if n := int(new(big.Int).Quo(r.Num(), r.Denom()).Int64()); n > max {
+					max = n
+				}
+			}
+		}
+	}
+	return max + 1
 }
 
 // Database 数据库对象：对用户呈现为"一个普通字典"（与 网络.服务() 同一风格），
@@ -88,13 +104,17 @@ func openDatabase(path string, line int) (Value, *errs.Error) {
 		for name, blob := range raw {
 			var skeleton struct {
 				Cols []string           `json:"列"`
+				Auto []string           `json:"自增"`
 				Rows [][]json.RawMessage `json:"行"`
 			}
 			if jerr := json.Unmarshal(blob, &skeleton); jerr != nil {
 				return nil, errs.RuntimeHint(
 					path+" 里的表 "+name+" 读不出来。", "cannot read table "+name+" from "+path+".", "", line)
 			}
-			t := &dbTable{cols: skeleton.Cols}
+			t := &dbTable{cols: skeleton.Cols, autoCols: map[string]bool{}}
+			for _, a := range skeleton.Auto {
+				t.autoCols[a] = true
+			}
 			for _, rawRow := range skeleton.Rows {
 				row := make([]Value, len(t.cols))
 				for i, cell := range rawRow {
@@ -164,14 +184,30 @@ func (db *Database) save() *errs.Error {
 			}
 			rows[i] = cells
 		}
-		out[name] = map[string]interface{}{"列": t.cols, "行": rows}
+		tbl := map[string]interface{}{"列": t.cols, "行": rows}
+		if len(t.autoCols) > 0 {
+			autos := []string{}
+			for _, c := range t.cols {
+				if t.autoCols[c] {
+					autos = append(autos, c)
+				}
+			}
+			tbl["自增"] = autos
+		}
+		out[name] = tbl
 	}
 	data, err := json.MarshalIndent(out, "", " ")
 	if err != nil {
 		return errs.Runtime("数据库写盘失败："+err.Error(), "failed to write the database file.", 0)
 	}
-	if err := os.WriteFile(db.path, data, 0o644); err != nil {
+	// 原子落盘：先写临时文件再改名，进程被杀不会留下半个文件
+	tmp := db.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return errs.Runtime("数据库写不进 "+db.path+"："+err.Error(), "cannot write "+db.path+".", 0)
+	}
+	if err := os.Rename(tmp, db.path); err != nil {
+		_ = os.Remove(tmp)
+		return errs.Runtime("数据库落盘改名失败："+db.path+"："+err.Error(), "cannot commit "+db.path+".", 0)
 	}
 	return nil
 }
@@ -378,8 +414,14 @@ func isIdentRune(c rune) bool {
 
 // ---------- SQL 语句与条件 ----------
 
+type dbAgg struct {
+	fn  string // 数 / 和 / 平均 / 最大 / 最小
+	col string // * 或列名
+}
+
 type dbStmt struct {
 	kind       string // 建 / 删表 / 插入 / 选择 / 更新 / 删行
+	aggs       []dbAgg // 选择语句的聚合项（有聚合时输出单行）
 	table      string
 	ifNotHave  bool // 建表 如无；删表 如有
 	cols       []string
@@ -437,6 +479,51 @@ type sqlParser struct {
 	pos      int
 	line     int
 	paramSeq int // ? 的个数（解析期编号）
+	agg      dbAgg // tryAggregate 命中时回传
+}
+
+var aggNames = map[string]string{
+	"数": "数", "count": "数",
+	"和": "和", "sum": "和",
+	"平均": "平均", "avg": "平均",
+	"最大": "最大", "max": "最大",
+	"最小": "最小", "min": "最小",
+}
+
+// tryAggregate 尝试吃掉一个聚合项：数(*) / 和(列) / 平均(列) / 最大(列) / 最小(列)。
+func (p *sqlParser) tryAggregate() (string, bool) {
+	if p.pos+1 >= len(p.toks) {
+		return "", false
+	}
+	w := p.toks[p.pos]
+	open := p.toks[p.pos+1]
+	if w.kind != "词" || open.kind != "符号" || open.text != "(" {
+		return "", false
+	}
+	fn, isAgg := aggNames[strings.ToLower(w.text)]
+	if !isAgg {
+		fn, isAgg = aggNames[w.text]
+	}
+	if !isAgg {
+		return "", false
+	}
+	save := p.pos
+	p.pos += 2
+	col := "*"
+	if !p.eatSym("*") {
+		c, e := p.ident("列名")
+		if e != nil {
+			p.pos = save
+			return "", false
+		}
+		col = c
+	}
+	if !p.eatSym(")") {
+		p.pos = save
+		return "", false
+	}
+	p.agg = dbAgg{fn: fn, col: col}
+	return fn, true
 }
 
 func (p *sqlParser) nextParam() int {
@@ -604,6 +691,9 @@ func (p *sqlParser) parse() (*dbStmt, *errs.Error) {
 				return nil, e
 			}
 			st.cols = append(st.cols, col)
+			if p.eatWord("自增", "auto_increment") || p.eatCompound("自增", "auto increment") {
+				st.cols[len(st.cols)-1] = col + " 自增"
+			}
 			if p.eatSym(",") {
 				continue
 			}
@@ -719,6 +809,14 @@ func (p *sqlParser) parseSelectTail() *dbStmt {
 		st.selectCols = nil // nil 表示 *（运行时按表列展开）
 	} else {
 		for {
+			if fn, ok := p.tryAggregate(); ok {
+				st.aggs = append(st.aggs, p.agg)
+				st.selectCols = append(st.selectCols, fn)
+				if p.eatSym(",") {
+					continue
+				}
+				break
+			}
 			col, e := p.ident("列名")
 			if e != nil {
 				return st
@@ -898,7 +996,7 @@ func (st *dbStmt) run(db *Database, pb *paramBinder) (int, *errs.Error) {
 				"表 "+st.table+" 已经存在。", "table "+st.table+" already exists.",
 				"想避免报错可以写：建 表 如无 "+st.table+" (…)。", pb.line)
 		}
-		db.tables[st.table] = &dbTable{cols: st.cols}
+		db.tables[st.table] = &dbTable{cols: colNames(st.cols), autoCols: autoColsOf(st.cols)}
 		return 0, nil
 	case "删表":
 		if _, exists := db.tables[st.table]; !exists {
@@ -930,8 +1028,16 @@ func (st *dbStmt) run(db *Database, pb *paramBinder) (int, *errs.Error) {
 						if e != nil {
 							return 0, e
 						}
+						if t.autoCols[col] && v == nil {
+							v = big.NewRat(int64(t.nextAuto(col)), 1) // 自增列：不给值就自动取号
+						}
 						row[ci] = v
 					}
+				}
+			}
+			for ci, col := range t.cols {
+				if t.autoCols[col] && row[ci] == nil {
+					row[ci] = big.NewRat(int64(t.nextAuto(col)), 1) // 列没写或写了空值都自动取号
 				}
 			}
 			t.rows = append(t.rows, row)
@@ -1003,6 +1109,28 @@ func (st *dbStmt) selectRows(db *Database, pb *paramBinder) ([][]Value, *errs.Er
 		cols = t.cols // * 展开
 	}
 	var out [][]Value
+	// 聚合：数(*) / 和(列) / 平均(列) / 最大(列) / 最小(列) → 输出单行
+	if len(st.aggs) > 0 {
+		var matched [][]Value
+		for _, row := range t.rows {
+			ok, e := st.where.eval(pb, t, row)
+			if e != nil {
+				return nil, e
+			}
+			if ok {
+				matched = append(matched, row)
+			}
+		}
+		aggRow := make([]Value, len(st.aggs))
+		for ai, ag := range st.aggs {
+			v, e := aggCompute(ag, t, matched, pb.line)
+			if e != nil {
+				return nil, e
+			}
+			aggRow[ai] = v
+		}
+		return [][]Value{aggRow}, nil
+	}
 	for _, row := range t.rows {
 		ok, e := st.where.eval(pb, t, row)
 		if e != nil {
@@ -1055,6 +1183,58 @@ func (st *dbStmt) selectRows(db *Database, pb *paramBinder) ([][]Value, *errs.Er
 	return out, nil
 }
 
+func aggCompute(ag dbAgg, t *dbTable, rows [][]Value, line int) (Value, *errs.Error) {
+	if ag.fn == "数" {
+		return big.NewRat(int64(len(rows)), 1), nil
+	}
+	idx := -1
+	if ag.col != "*" {
+		idx = colIndex(t, ag.col)
+		if idx < 0 {
+			return nil, errs.RuntimeHint("表里没有列 "+ag.col+"。", "no such column: "+ag.col+".", "", line)
+		}
+	}
+	var sum *big.Rat
+	var count int
+	var mx, mn Value
+	for _, row := range rows {
+		v := row[idx]
+		r, ok := v.(*big.Rat)
+		if !ok {
+			continue // 聚合只算数，空值/文本跳过
+		}
+		count++
+		if sum == nil {
+			sum = new(big.Rat).Set(r)
+		} else {
+			sum.Add(sum, r)
+		}
+		if mx == nil || r.Cmp(mx.(*big.Rat)) > 0 {
+			mx = r
+		}
+		if mn == nil || r.Cmp(mn.(*big.Rat)) < 0 {
+			mn = r
+		}
+	}
+	switch ag.fn {
+	case "和":
+		if sum == nil {
+			return big.NewRat(0, 1), nil
+		}
+		return sum, nil
+	case "平均":
+		if sum == nil {
+			return nil, errs.RuntimeHint("没有可求平均的数。", "no numeric values to average.", "", line)
+		}
+		return new(big.Rat).Quo(sum, big.NewRat(int64(count), 1)), nil
+	case "最大":
+		return mx, nil
+	case "最小":
+		return mn, nil
+	}
+	return nil, nil
+}
+
 func (t *dbTable) rowCol(row []Value, col string) (Value, bool) {
 	for i, c := range t.cols {
 		if c == col {
@@ -1065,6 +1245,24 @@ func (t *dbTable) rowCol(row []Value, col string) (Value, bool) {
 		}
 	}
 	return nil, false
+}
+
+func colNames(cols []string) []string {
+	out := make([]string, len(cols))
+	for i, c := range cols {
+		out[i] = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(c), "自增"))
+	}
+	return out
+}
+
+func autoColsOf(cols []string) map[string]bool {
+	m := map[string]bool{}
+	for _, c := range cols {
+		if strings.HasSuffix(strings.TrimSpace(c), "自增") {
+			m[strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(c), "自增"))] = true
+		}
+	}
+	return m
 }
 
 func colIndex(t *dbTable, col string) int {

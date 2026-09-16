@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"sahou/internal/errs"
+	"sahou/internal/interp"
 	"sahou/internal/lexer"
 	"sahou/internal/parser"
 )
@@ -82,7 +83,10 @@ func Run() {
 				"id":      m.ID,
 				"result": map[string]interface{}{
 					"capabilities": map[string]interface{}{
-						"textDocumentSync": 1, // 全量同步
+						"textDocumentSync":  1, // 全量同步
+						"completionProvider": map[string]interface{}{
+							"triggerCharacters": []string{".", " "},
+						},
 					},
 					"serverInfo": map[string]interface{}{
 						"name": "sahou-lsp",
@@ -114,6 +118,20 @@ func Run() {
 					"params":  publishParams{URI: p.TextDocument.URI, Diagnostics: []diagnostic{}},
 				}))
 			}
+		case "textDocument/completion":
+			items := []map[string]interface{}{}
+			for i, w := range interp.CompletionWords() {
+				items = append(items, map[string]interface{}{
+					"label": w,
+					"kind":  14, // Keyword（混合表，统一按关键词给）
+					"sortText": fmt.Sprintf("%04d", i),
+				})
+			}
+			writeMessage(os.Stdout, mustJSON(map[string]interface{}{
+				"jsonrpc": "2.0",
+				"id":      m.ID,
+				"result":  map[string]interface{}{"isIncomplete": false, "items": items},
+			}))
 		case "shutdown":
 			writeMessage(os.Stdout, mustJSON(map[string]interface{}{
 				"jsonrpc": "2.0", "id": m.ID, "result": nil,

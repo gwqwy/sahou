@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"sahou/internal/errs"
+	"sahou/internal/lexer"
 )
 
 // ---------- 内置函数注册表（规范 6.2：共 29 个，另有 1 个别名不占名额）----------
@@ -1032,4 +1033,28 @@ func mDictRemove(in *Interp, recv Value, args []Value, named map[string]Value, l
 		return nil, errs.RuntimeHint(zh, en, "现有的键有："+strings.Join(cands, "、")+"。", line)
 	}
 	return nil, nil
+}
+
+// CompletionWords 供 LSP 补全：全部关键字 + 内置函数名 + 模块名（中英双语）。
+func CompletionWords() []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(w string) {
+		if w != "" && !seen[w] {
+			seen[w] = true
+			out = append(out, w)
+		}
+	}
+	for w := range lexer.KeyWords {
+		add(w)
+	}
+	for w := range nameToDef {
+		add(w)
+	}
+	for _, m := range []string{"网络", "net", "页面", "page", "随机", "random", "时间", "time",
+		"数学", "math", "编码", "encoding", "系统", "sys", "网页", "html",
+		"数据库", "db", "应用", "app", "测试", "assert"} {
+		add(m)
+	}
+	return out
 }

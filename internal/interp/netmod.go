@@ -13,9 +13,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"math/big"
 
@@ -27,13 +29,17 @@ import (
 // Server 网络服务：对用户呈现为"一个普通字典"（05 文档 2.2），
 // 实现上是原生值，成员 路由/监听 是 BoundMember。
 type Server struct {
-	routes   map[string]Value // "METHOD path" → 处理函数（后注册覆盖先注册）
-	names    []string         // 供报错列出现有路由
-	patterns []patternRoute   // 带路径参数的路由：/用户/{名字}
-	statics  []staticRoute    // 静态文件路由（前缀 → 本地目录）
-	sessMu   sync.Mutex
-	sessions map[string]*Dict // 会话ID → 会话字典（v1.6，PHP $_SESSION 对应物）
+	routes      map[string]Value // "METHOD path" → 处理函数（后注册覆盖先注册）
+	names       []string         // 供报错列出现有路由
+	patterns    []patternRoute   // 带路径参数的路由：/文章/:编号
+	statics     []staticRoute    // 静态文件路由（前缀 → 本地目录）
+	sessMu      sync.Mutex
+	sessions    map[string]*Dict        // 会话ID → 会话字典（v1.6，PHP $_SESSION 对应物）
+	sessionSeen map[string]int64        // 会话ID → 最后活跃时间（Unix 秒，过期清理用）
+	sessPath    string                  // 会话落盘文件（服务.会话存 设置后启用）
 }
+
+const sessionTTL = int64(24 * 3600) // 会话有效期：24 小时无活动即过期
 
 // patternRoute 路径参数路由：段为 "{名}" 时匹配任意一段并捕获。
 type patternRoute struct {
@@ -49,7 +55,7 @@ type staticRoute struct {
 }
 
 func newServer() *Server {
-	return &Server{routes: map[string]Value{}, sessions: map[string]*Dict{}}
+	return &Server{routes: map[string]Value{}, sessions: map[string]*Dict{}, sessionSeen: map[string]int64{}}
 }
 
 // ---------- 模块注册 ----------
@@ -97,6 +103,28 @@ func init() {
 	serverMembers["listen"] = serverMembers["监听"]
 	serverMembers["静态"] = &memberDef{zh: "静态", en: "static", fn: srvStatic}
 	serverMembers["static"] = serverMembers["静态"]
+	serverMembers["会话存"] = &memberDef{zh: "会话存", en: "session_store", fn: srvSessionStore}
+	serverMembers["session_store"] = serverMembers["会话存"]
+}
+
+// srvSessionStore 服务.会话存(路径)：会话落盘（重启不丢），文件不存在则新建。
+func srvSessionStore(in *Interp, recv Value, args []Value, named map[string]Value, line int) (Value, *errs.Error) {
+	srv := recv.(*Server)
+	pathV, ok := opt(args, 0)
+	if !ok {
+		return nil, errs.RuntimeHint(
+			"会话存 要给一个文件路径。", "session_store needs a file path.",
+			"例如：服务.会话存(\"会话.json\")。", line)
+	}
+	path, ok2 := pathV.(string)
+	if !ok2 {
+		return nil, errs.RuntimeHint("会话存 的参数要是文本。", "session_store's argument must be text.", "", line)
+	}
+	srv.sessMu.Lock()
+	srv.sessPath = in.ScriptPath(path)
+	srv.loadSessionsLocked()
+	srv.sessMu.Unlock()
+	return nil, nil
 }
 
 // srvStatic 服务.静态(前缀, 目录)：把一个 URL 前缀映射到本地目录，直接发文件。
@@ -137,6 +165,7 @@ func registerNetModule(in *Interp) {
 	registerHTMLModule(in)
 	registerDBModule(in)
 	registerAppModule(in)
+	registerTestModule(in)
 }
 
 // netServer 网络.服务()：创建服务对象
@@ -229,7 +258,13 @@ func srvListen(in *Interp, recv Value, args []Value, named map[string]Value, lin
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		in.serveHTTP(srv, w, r)
 	})
-	server := &http.Server{Addr: addr, Handler: mux}
+	server := &http.Server{
+		Addr: addr, Handler: mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	if err := server.ListenAndServe(); err != nil {
 		return nil, errs.RuntimeHint(
 			fmt.Sprintf("服务在 %s 上启动失败：%s。", addr, err.Error()),
@@ -302,6 +337,32 @@ func (in *Interp) serveHTTP(srv *Server, w http.ResponseWriter, r *http.Request)
 		http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: sessID, Path: "/", HttpOnly: true})
 	}
 
+	// 文件上传：multipart 里的文件存进临时目录，请求字典里给 文件名/路径/大小
+	uploads := NewDict()
+	if strings.HasPrefix(ct, "multipart/form-data") && r.MultipartForm != nil {
+		for field, fhs := range r.MultipartForm.File {
+			if len(fhs) == 0 {
+				continue
+			}
+			fh := fhs[0]
+			src, err := fh.Open()
+			if err != nil {
+				continue
+			}
+			tmp, err := os.CreateTemp("", "sahou-upload-*-"+filepath.Base(fh.Filename))
+			if err == nil {
+				n, _ := io.Copy(tmp, src)
+				tmp.Close()
+				info := NewDict()
+				info.SetNew("s:文件名", fh.Filename)
+				info.SetNew("s:路径", tmp.Name())
+				info.SetNew("s:大小", big.NewRat(n, 1))
+				uploads.SetNew("s:"+field, info)
+			}
+			src.Close()
+		}
+	}
+
 	req := NewDict()
 	req.SetNew("s:方法", strings.ToUpper(r.Method))
 	req.SetNew("s:路径", r.URL.Path)
@@ -311,7 +372,8 @@ func (in *Interp) serveHTTP(srv *Server, w http.ResponseWriter, r *http.Request)
 	req.SetNew("s:Cookie", cookies)
 	req.SetNew("s:会话", session)
 	req.SetNew("s:体", string(body))
-	req.SetNew("s:参数", NewDict()) // 路径参数（{名字} 捕获）
+	req.SetNew("s:参数", NewDict()) // 路径参数（:名字 捕获）
+	req.SetNew("s:文件", uploads)  // 上传的文件（multipart）
 
 	key := strings.ToUpper(r.Method) + " " + r.URL.Path
 	handler, found := srv.routes[key]
@@ -411,11 +473,16 @@ const sessionCookie = "sahou_sid"
 
 // openSession 从请求 Cookie 里找会话号，找到就取回会话字典，找不到就新建。
 func (srv *Server) openSession(r *http.Request) (id string, sess *Dict, isNew bool) {
+	now := time.Now().Unix()
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
 		srv.sessMu.Lock()
 		defer srv.sessMu.Unlock()
-		if d, ok := srv.sessions[c.Value]; ok {
-			return c.Value, d, false
+		srv.gcSessionsLocked(now)
+		if seen, ok := srv.sessionSeen[c.Value]; ok && now-seen <= sessionTTL {
+			if d, ok2 := srv.sessions[c.Value]; ok2 {
+				srv.sessionSeen[c.Value] = now
+				return c.Value, d, false
+			}
 		}
 	}
 	buf := make([]byte, 16)
@@ -435,7 +502,72 @@ func (srv *Server) openSession(r *http.Request) (id string, sess *Dict, isNew bo
 func (srv *Server) saveSession(id string, sess *Dict) {
 	srv.sessMu.Lock()
 	srv.sessions[id] = sess
+	srv.sessionSeen[id] = time.Now().Unix()
+	srv.dumpSessionsLocked()
 	srv.sessMu.Unlock()
+}
+
+// gcSessionsLocked 清理超过 24 小时没活动的会话（调用方持锁）。
+func (srv *Server) gcSessionsLocked(now int64) {
+	for id, seen := range srv.sessionSeen {
+		if now-seen > sessionTTL {
+			delete(srv.sessions, id)
+			delete(srv.sessionSeen, id)
+		}
+	}
+}
+
+// dumpSessionsLocked 会话落盘（未设路径时是空操作；调用方持锁）。
+func (srv *Server) dumpSessionsLocked() {
+	if srv.sessPath == "" {
+		return
+	}
+	out := map[string]interface{}{}
+	for id, d := range srv.sessions {
+		seen := srv.sessionSeen[id]
+		items := map[string]interface{}{"_活跃": seen}
+		for _, k := range d.Keys() {
+			if strings.HasPrefix(k, "s:") {
+				if v, ok := d.Get(k); ok {
+					items[k[2:]] = dbCellToJSON(v)
+				}
+			}
+		}
+		out[id] = items
+	}
+	data, _ := json.MarshalIndent(out, "", " ")
+	_ = os.WriteFile(srv.sessPath, data, 0o644)
+}
+
+// loadSessionsLocked 从文件读回会话（调用方持锁）。
+func (srv *Server) loadSessionsLocked() {
+	data, err := os.ReadFile(srv.sessPath)
+	if err != nil {
+		return
+	}
+	var raw map[string]map[string]json.RawMessage
+	if json.Unmarshal(data, &raw) != nil {
+		return
+	}
+	now := time.Now().Unix()
+	for id, m := range raw {
+		seen := int64(0)
+		if b, ok := m["_活跃"]; ok {
+			_ = json.Unmarshal(b, &seen)
+		}
+		if now-seen > sessionTTL {
+			continue // 过期会话不复活
+		}
+		d := NewDict()
+		for k, cell := range m {
+			if k == "_活跃" {
+				continue
+			}
+			d.SetNew("s:"+k, dbCellFromJSON(cell))
+		}
+		srv.sessions[id] = d
+		srv.sessionSeen[id] = seen
+	}
 }
 
 // CallHandler 从宿主（HTTP goroutine）调用一个 sahou 函数；mu 串行化求值。

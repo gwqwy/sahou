@@ -545,6 +545,12 @@ func (b *Builder) expr(x parser.Expr) (string, *errs.Error) {
 	case *parser.StrLit:
 		return b.strLit(e)
 	case *parser.Ident:
+		if why, bad := serverOnlyModule(e.Name); bad {
+			return "", errs.RuntimeHint(
+				why+"只能在解释器（本机/服务端）里用，转译成浏览器 JS 后没有对应实现。",
+				why+" is server-side only and has no browser build.",
+				"浏览器侧请用 页面 模块；要跑服务端程序请用 sahou run。", e.Line)
+		}
 		return b.ident(e), nil
 	case *parser.ListLit:
 		parts := make([]string, len(e.Elems))
@@ -929,4 +935,19 @@ func goQuote(s string) string {
 	}
 	sb.WriteByte('"')
 	return sb.String()
+}
+
+// serverOnlyModule 服务端专属模块名（浏览器无对应实现）→ 返回 (中文名, 是否服务端专属)。
+func serverOnlyModule(name string) (string, bool) {
+	switch name {
+	case "网络", "net":
+		return "网络/net 模块", true
+	case "数据库", "db":
+		return "数据库/db 模块", true
+	case "应用", "app":
+		return "应用/app 模块", true
+	case "测试", "assert":
+		return "测试/assert 模块", true
+	}
+	return "", false
 }
