@@ -91,5 +91,24 @@
       "页.显示()"
     ],
     "description": "纯代码写页面：窗口 + 控件 + 事件（应用.写页面）"
+  },
+  "格子": {
+    "prefix": "cell",
+    "body": "格子 ${1:名字} = ${2:表达式}",
+    "description": "响应式格子：依赖变化时自动重算（v4）"
+  },
+  "从a到b循环": {
+    "prefix": "range",
+    "body": [
+      "for ${1:i} 于 从a到b(${2:1}, ${3:11})",
+      "\t${4:print(${1:i})}",
+      "完毕"
+    ],
+    "description": "按数字区间循环（含头不含尾）"
+  },
+  "引入stones包": {
+    "prefix": "usestone",
+    "body": "用 \"${1:算术库}\" 引入",
+    "description": "引入 exe 自带的 stones 标准库包（免安装）"
   }
 }

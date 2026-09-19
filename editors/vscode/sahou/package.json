@@ -1,10 +1,22 @@
 {
   "name": "sahou-language",
   "displayName": "sahou（卅）语言支持",
-  "description": "sahou 编程语言：语法高亮、文件识别、一键运行、实时语法诊断（基于 sahou lsp）",
-  "version": "0.1.5",
+  "description": "卅（sahou）编程语言：语法高亮、文件图标、上下文补全、悬停文档、实时诊断、一键运行/转译/REPL",
+  "version": "0.2.0",
   "publisher": "sahou",
   "license": "MIT",
+  "icon": "./icons/sahou-128.png",
+  "keywords": [
+    "中文编程",
+    "sahou",
+    "卅",
+    "教育",
+    "beginners"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gwqwy/sahou"
+  },
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -42,12 +54,31 @@
         "path": "./snippets/sahou.json"
       }
     ],
+    "iconThemes": [
+      {
+        "id": "saho",
+        "label": "卅 (sahou)",
+        "path": "./saho-icon-theme.json"
+      }
+    ],
     "commands": [
       {
         "command": "sahou.run",
         "title": "运行当前 sahou 文件",
         "category": "sahou",
         "icon": "$(play)"
+      },
+      {
+        "command": "sahou.build",
+        "title": "转译当前文件为 JS（页面/浏览器用）",
+        "category": "sahou",
+        "icon": "$(arrow-circle-right)"
+      },
+      {
+        "command": "sahou.repl",
+        "title": "打开 sahou 交互环境（REPL）",
+        "category": "sahou",
+        "icon": "$(terminal)"
       },
       {
         "command": "sahou.restartLsp",
@@ -73,7 +104,12 @@
         "sahou.diagnostics": {
           "type": "boolean",
           "default": true,
-          "description": "启用实时语法诊断（需要 sahou.path 指向支持 lsp 子命令的版本）"
+          "description": "启用实时诊断（需要 sahou.path 指向支持 lsp 子命令的版本）"
+        },
+        "sahou.completion": {
+          "type": "boolean",
+          "default": true,
+          "description": "启用补全与悬停（服务端 sahou lsp 优先，静态数据兜底）"
         }
       }
     },
@@ -81,6 +117,11 @@
       "editor/title": [
         {
           "command": "sahou.run",
+          "group": "navigation",
+          "when": "editorLangId == sahou"
+        },
+        {
+          "command": "sahou.build",
           "group": "navigation",
           "when": "editorLangId == sahou"
         }

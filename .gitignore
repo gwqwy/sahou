@@ -4,3 +4,5 @@ sahou.exe~
 tests/.tmp_app/
 分发版/
 github发布/
+.mimosa/
+__pycache__/

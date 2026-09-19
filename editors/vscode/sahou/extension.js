@@ -1,14 +1,26 @@
 // sahou（卅）VS Code 扩展主代码。
-// 1) sahou.run：在终端运行当前 .saho 文件；
-// 2) 内置极简 LSP 客户端：启动 `sahou lsp`，把语法诊断映射为编辑器波浪线。
-// 无 npm 依赖，直接使用 vscode API 与 child_process。
+// 1) sahou.run / sahou.build / sahou.repl：在终端运行、转译、打开交互环境；
+// 2) 内置极简 LSP 客户端：启动 `sahou lsp`，推送诊断；v0.2 起还转发补全请求，
+//    让服务端的上下文补全（`用 "…` 给包名、`名字.` 给成员）真正到达编辑器；
+// 3) 静态元数据来自 ./data/language.json（editors/shared/language.json 的同步副本），
+//    用于补全兜底与悬停文档。无 npm 依赖，只用 vscode API 与 child_process。
 const vscode = require("vscode");
 const { spawn } = require("child_process");
+
+// ---------- 共享语言数据（editors/shared/language.json 的副本） ----------
+
+let LANG = null;
+try {
+  LANG = require("./data/language.json");
+} catch (err) {
+  LANG = { keywords: [], builtins: [], modules: [], stones: [] };
+}
 
 let lspProcess = null;
 let lspBuffer = null;
 let diagnosticCollection = null;
-let pendingDocs = null;
+let lspRequestSeq = 10;
+const pendingCompletions = new Map(); // id -> { resolve, timer }
 
 function sahouPath() {
   return vscode.workspace.getConfiguration("sahou").get("path", "sahou");
@@ -18,38 +30,148 @@ function diagnosticsEnabled() {
   return vscode.workspace.getConfiguration("sahou").get("diagnostics", true);
 }
 
-// ---------- 运行当前文件 ----------
+function completionEnabled() {
+  return vscode.workspace.getConfiguration("sahou").get("completion", true);
+}
 
-function runCurrentFile() {
+// ---------- 运行 / 转译 / REPL ----------
+
+function ensureSahouEditor() {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.document.languageId !== "sahou") {
     vscode.window.showWarningMessage("请先打开一个 .saho 文件。");
-    return;
+    return null;
   }
-  editor.document.save();
+  return editor;
+}
+
+function runInTerminal(name, cmd) {
   const terminal = vscode.window.createTerminal({ name: "sahou" });
   terminal.show();
-  const exe = sahouPath();
-  const file = editor.document.fileName;
-  const cmd = buildRunCommand(exe, file);
   // 优先用 shell integration API：命令由 VS Code 直接执行，绕开 shell 解析差异
   if (terminal.shellIntegration && terminal.shellIntegration.executeCommand) {
     terminal.shellIntegration.executeCommand(cmd);
   } else {
     terminal.sendText(cmd);
   }
+  return terminal;
 }
 
 // 组装终端命令：PowerShell 里以引号开头的命令会被当成字符串，
 // 所以含空格的路径要加 & 调用符；无空格路径不加引号（三种终端通吃）。
-function buildRunCommand(exe, file) {
+function quoteExe(exe) {
+  const needQuote = exe.includes(" ");
   const profile =
     vscode.workspace.getConfiguration("terminal.integrated").get("defaultProfile.windows") || "";
   const isPowerShell = /powershell|pwsh/i.test(profile) || profile === "";
-  const needQuoteExe = exe.includes(" ");
-  const exePart = needQuoteExe ? `"${exe}"` : exe;
-  const prefix = isPowerShell && needQuoteExe ? "& " : "";
-  return `${prefix}${exePart} run "${file}"`;
+  const part = needQuote ? `"${exe}"` : exe;
+  return isPowerShell && needQuote ? "& " + part : part;
+}
+
+function runCurrentFile() {
+  const editor = ensureSahouEditor();
+  if (!editor) return;
+  editor.document.save();
+  const cmd = `${quoteExe(sahouPath())} run "${editor.document.fileName}"`;
+  runInTerminal("sahou", cmd);
+}
+
+function buildCurrentFile() {
+  const editor = ensureSahouEditor();
+  if (!editor) return;
+  editor.document.save();
+  const file = editor.document.fileName;
+  const out = file.replace(/\.saho$/i, "") + ".js";
+  const cmd = `${quoteExe(sahouPath())} build "${file}" -o "${out}"`;
+  runInTerminal("sahou 转译", cmd);
+}
+
+function openRepl() {
+  const cmd = quoteExe(sahouPath());
+  runInTerminal("sahou", cmd);
+}
+
+// ---------- 静态补全与悬停（编辑器端元数据，无网络往返） ----------
+
+function wordAt(doc, pos) {
+  const range = doc.getWordRangeAtPosition(pos, /[\p{L}\p{Nd}_]+/u);
+  return range ? doc.getText(range) : "";
+}
+
+function staticCompletionItems(prefix) {
+  const items = [];
+  const add = (label, kind, detail, doc) => {
+    const item = new vscode.CompletionItem(label, kind);
+    item.detail = detail;
+    if (doc) item.documentation = doc;
+    items.push(item);
+  };
+  const md = (text) => new vscode.MarkdownString(text);
+  for (const k of LANG.keywords || []) {
+    if (k.zh.startsWith(prefix)) {
+      add(k.zh, vscode.CompletionItemKind.Keyword, "sahou 关键字（英文 " + k.en + "）", md(k.brief));
+    } else if (k.en.startsWith(prefix)) {
+      add(k.en, vscode.CompletionItemKind.Keyword, "sahou keyword（中文 " + k.zh + "）", md(k.brief));
+    }
+  }
+  for (const b of LANG.builtins || []) {
+    if (b.zh.startsWith(prefix)) {
+      add(b.zh, vscode.CompletionItemKind.Function, b.signature, md("**" + b.signature + "**\n\n" + b.brief + "\n\n（英文 " + b.en + "，" + b.side + "）"));
+    } else if (b.en.startsWith(prefix)) {
+      add(b.en, vscode.CompletionItemKind.Function, b.signature, md("**" + b.signature + "**\n\n" + b.brief + "\n\n（中文 " + b.zh + "，" + b.side + "）"));
+    }
+  }
+  for (const m of LANG.modules || []) {
+    if (m.zh.startsWith(prefix)) {
+      add(m.zh, vscode.CompletionItemKind.Module, m.brief);
+    } else if (m.en.startsWith(prefix)) {
+      add(m.en, vscode.CompletionItemKind.Module, m.brief);
+    }
+  }
+  for (const s of LANG.stones || []) {
+    if (s.name.startsWith(prefix)) {
+      add(s.name, vscode.CompletionItemKind.Module, "stones 包：" + s.brief);
+    }
+  }
+  // 管道占位符：值 -> 步骤 里用 它 指代流经的值
+  if ("它".startsWith(prefix)) {
+    add("它", vscode.CompletionItemKind.Variable, "管道占位符：值 -> 它 * 2 -> 打印");
+  }
+  return items;
+}
+
+function hoverInfo(word) {
+  const md = (text) => new vscode.Hover(new vscode.MarkdownString(text));
+  for (const b of LANG.builtins || []) {
+    if (word === b.zh || word === b.en) {
+      return md("**sahou 内置函数** `" + b.signature + "`\n\n" + b.brief + "\n\n（英文写法：" + b.en + "；" + b.side + "可用）");
+    }
+  }
+  for (const m of LANG.modules || []) {
+    if (word === m.zh || word === m.en) {
+      const members = (m.members || []).join("、") || "成员在输入 . 后自动补全";
+      return md("**sahou 标准库模块** " + m.brief + "\n\n常见成员：" + members);
+    }
+    if ((m.members || []).includes(word)) {
+      return md("**" + m.zh + "/" + m.en + "** 的成员：" + word);
+    }
+  }
+  for (const s of LANG.stones || []) {
+    if (word === s.name) {
+      return md("**sahou stones 标准库包** " + s.brief + "\n\n用 `用 \"" + s.name + "\" 引入` 后以 " + s.name + ".成员 使用。\n\n顶层成员：" + (s.members || []).join("、"));
+    }
+    if ((s.members || []).includes(word)) {
+      return md("**stones 包 " + s.name + "** 的成员：" + word + "\n\n" + s.brief);
+    }
+  }
+  for (const k of LANG.keywords || []) {
+    if (word === k.zh) return md("**sahou 关键字**（英文 " + k.en + "）\n\n" + k.brief);
+    if (word === k.en) return md("**sahou keyword**（中文 " + k.zh + "）\n\n" + k.brief);
+  }
+  if (word === "它") {
+    return md("**管道占位符** `它`\n\n在 `值 -> 步骤 -> 步骤` 里指代流经当前步骤的值，例如 `成绩 -> 它 >= 60 -> 打印`。全角 `→` 与 `->` 等价。");
+  }
+  return null;
 }
 
 // ---------- 极简 LSP 客户端 ----------
@@ -112,7 +234,6 @@ function startLsp(context) {
 }
 
 function sendOpen(doc) {
-  pendingDocs = pendingDocs || new Map();
   send("textDocument/didOpen", {
     textDocument: {
       uri: doc.uri.toString(),
@@ -150,7 +271,52 @@ function handleLspMessage(raw) {
       return diag;
     });
     diagnosticCollection.set(uri, diags);
+    return;
   }
+  // 补全响应：按 id 交给等待中的 provider
+  if (msg.id !== undefined && pendingCompletions.has(Number(msg.id))) {
+    const pending = pendingCompletions.get(Number(msg.id));
+    clearTimeout(pending.timer);
+    pendingCompletions.delete(Number(msg.id));
+    pending.resolve(msg.result && Array.isArray(msg.result.items) ? msg.result.items : []);
+  }
+}
+
+// 向服务端要上下文补全；500ms 内没回话（或服务没起来）就退回静态数据。
+function serverCompletion(doc, pos) {
+  return new Promise((resolve) => {
+    if (!lspProcess) {
+      resolve(null);
+      return;
+    }
+    const id = lspRequestSeq++;
+    const timer = setTimeout(() => {
+      pendingCompletions.delete(id);
+      resolve(null);
+    }, 500);
+    pendingCompletions.set(id, { resolve, timer });
+    sendRequest(id, "textDocument/completion", {
+      textDocument: { uri: doc.uri.toString() },
+      position: { line: pos.line, character: pos.character },
+    });
+  });
+}
+
+const LSP_KIND_MAP = {
+  3: vscode.CompletionItemKind.Function,
+  6: vscode.CompletionItemKind.Variable,
+  9: vscode.CompletionItemKind.Module,
+  14: vscode.CompletionItemKind.Keyword,
+  21: vscode.CompletionItemKind.Field,
+};
+
+function toCompletionItems(serverItems) {
+  return serverItems.map((s) => {
+    const item = new vscode.CompletionItem(String(s.label || s.insertText || ""), LSP_KIND_MAP[s.kind] || vscode.CompletionItemKind.Text);
+    if (s.sortText) item.sortText = s.sortText;
+    if (s.detail) item.detail = s.detail;
+    return item;
+  });
 }
 
 // Content-Length 帧解析
@@ -163,19 +329,24 @@ function readFrame() {
   const length = Number(match[1]);
   if (lspBuffer.length < headEnd + 4 + length) return null;
   const body = lspBuffer.slice(headEnd + 4, headEnd + 4 + length);
-  lspBuffer = lspBuffer.slice(headEnd + 4 + length);
+  lspBuffer = lspBuffer.slice(headEnd + 4, headEnd + 4 + length);
   return body;
 }
 
 // ---------- 扩展入口 ----------
 
 function activate(context) {
-  registerLanguageFeatures(context);
   diagnosticCollection = vscode.languages.createDiagnosticCollection("sahou");
   context.subscriptions.push(diagnosticCollection);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("sahou.run", runCurrentFile)
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("sahou.build", buildCurrentFile)
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("sahou.repl", openRepl)
   );
   context.subscriptions.push(
     vscode.commands.registerCommand("sahou.restartLsp", () => {
@@ -224,11 +395,37 @@ function activate(context) {
     })
   );
 
+  registerLanguageFeatures(context);
   startLsp(context);
 }
 
 function registerLanguageFeatures(context) {
-  registerLanguageFeaturesImpl(context);
+  if (!completionEnabled()) return;
+  const selector = { language: "sahou" };
+  context.subscriptions.push(
+    vscode.languages.registerCompletionItemProvider(
+      selector,
+      {
+        async provideCompletionItems(doc, pos) {
+          // 服务端补全（上下文感知：包名/成员）优先，静态数据兜底
+          const serverItems = await serverCompletion(doc, pos);
+          if (serverItems && serverItems.length) {
+            return toCompletionItems(serverItems);
+          }
+          return staticCompletionItems(wordAt(doc, pos));
+        }
+      },
+      ".", "\"", " " // 触发符：成员点号、用 " 引导、空格（命名实参提示）
+    )
+  );
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(selector, {
+      provideHover(doc, pos) {
+        const word = wordAt(doc, pos);
+        return word ? hoverInfo(word) : null;
+      }
+    })
+  );
 }
 
 function stopLsp() {
@@ -241,6 +438,11 @@ function stopLsp() {
     }
     lspProcess = null;
   }
+  for (const [, pending] of pendingCompletions) {
+    clearTimeout(pending.timer);
+    pending.resolve(null);
+  }
+  pendingCompletions.clear();
 }
 
 function deactivate() {
@@ -248,134 +450,3 @@ function deactivate() {
 }
 
 module.exports = { activate, deactivate };
-
-// ---------- 补全与悬停（客户端元数据，无网络往返） ----------
-const SAHOU_KEYWORDS = [
-  ["如果", "条件：如果 条件 … 完毕"], ["又如", "否则再判断"], ["否则", "其余情况"],
-  ["当", "循环：当 条件 … 完毕"], ["遍历", "循环：遍历 x 于 序列"], ["于", "遍历的连接词"],
-  ["完毕", "结束一个块"], ["函数", "定义函数（或匿名 函数(x) => 表达式）"],
-  ["返回", "从函数返回值"], ["设", "可选的赋值前缀"],
-  ["真", "布尔真"], ["假", "布尔假"], ["空值", "没有值"],
-  ["并且", "逻辑与（短路）"], ["或者", "逻辑或（短路）"], ["非", "逻辑非"],
-  ["尝试", "尝试块开始"], ["接住", "接住错误信息"], ["跳出", "结束最近一层循环（v4.1）"],
-  ["继续", "跳过本轮循环（v4.1）"], ["格子", "响应式变量（v4）"],
-  ["用", "引入模块：用 \"模块名\" 引入"],
-];
-const SAHOU_KEYWORDS_EN = [
-  ["if", "if condition … end"], ["elif", "else if"], ["else", "else"],
-  ["while", "while loop"], ["for", "for loop"], ["in", "loop connector"],
-  ["end", "close a block"], ["fn", "define function / anonymous fn"],
-  ["return", "return from function"], ["let", "optional assignment prefix"],
-  ["true", "true"], ["false", "false"], ["null", "null"],
-  ["and", "logical and"], ["or", "logical or"], ["not", "logical not"],
-  ["try", "try block"], ["catch", "catch error"], ["break", "break loop (v4.1)"],
-  ["continue", "continue loop (v4.1)"], ["cell", "reactive cell (v4)"],
-  ["use", "import module"], ["import", "import suffix"],
-];
-const SAHOU_BUILTINS = [
-  ["打印", "print", "打印(值, 结尾: \"\n\")", "把值打印到屏幕，结尾可改"],
-  ["输入", "input", "输入(提示: \"\")", "等用户输入一行，返回文本"],
-  ["数", "num", "数(值)", "把文本/布尔转成数；失败抛错"],
-  ["文本", "str", "文本(值)", "把任意值转成文本"],
-  ["列表", "list", "列表(值?)", "空列表/浅拷贝/字典的键列表"],
-  ["字典", "dict", "字典(配对列表?)", "空字典或由 [键,值] 对构造"],
-  ["从a到b", "range_to", "从a到b(a, b, 步长: 1)", "生成含头不含尾的等差列表"],
-  ["长度", "len", "长度(列表|文本|字典)", "元素数/字符数/键数"],
-  ["取", "slice", "取(序列, 起: 0, 止, 步长: 1)", "取一段（半开区间），替代切片语法"],
-  ["抛出", "throw", "抛出(消息文本)", "主动抛错，可被 接住"],
-  ["类型", "type_of", "类型(值)", "返回 \"number\"/\"string\"/…"],
-  ["包含", "contains", "包含(容器, 值)", "列表含元素/字典含键/文本含子串"],
-  ["求和", "sum", "求和(列表)", "所有数相加"],
-  ["最大值", "max", "最大值(列表)", "最大元素"],
-  ["最小值", "min", "最小值(列表)", "最小元素"],
-  ["排序", "sorted", "排序(列表, 降序: 假)", "返回新排序列表"],
-  ["反转", "reversed", "反转(列表|文本)", "返回倒序副本"],
-  ["连接", "join", "连接(列表, 分隔: \"\")", "元素转文本后连接"],
-  ["分割", "split", "分割(文本, 分隔: \" \")", "按分隔符切成列表"],
-  ["替换", "replace", "替换(文本, 旧, 新)", "全部替换，返回新文本"],
-  ["修剪", "trim", "修剪(文本)", "去首尾空白"],
-  ["转大写", "upper", "转大写(文本)", "字母转大写"],
-  ["转小写", "lower", "转小写(文本)", "字母转小写"],
-  ["绝对值", "abs", "绝对值(数)", "绝对值"],
-  ["平方根", "sqrt", "平方根(数)", "平方根；负数报错"],
-  ["四舍五入", "round", "四舍五入(数, 小数位: 0)", "按位四舍五入"],
-  ["读取文件", "read_file", "读取文件(路径)", "UTF-8 读整个文件（服务端）"],
-  ["写入文件", "write_file", "写入文件(路径, 内容)", "覆盖写入（服务端）"],
-  ["文件存在", "file_exists", "文件存在(路径)", "路径是否存在（服务端）"],
-  ["位置", "find", "位置(文本, 子文本)", "子文本首次出现的下标；找不到 -1"],
-];
-const SAHOU_MODULES = [
-  ["网络", "net", "后端：服务.路由/监听、请求、自文本/到文本（JSON）"],
-  ["页面", "page", "前端：取元素/置文本/点击/绑定/绑输入 等 DOM 能力"],
-  ["随机", "random", "数/小数/挑/洗牌/种子"],
-  ["时间", "time", "现在/文本/解析/戳/计时/耗时"],
-  ["数学", "math", "圆周率/幂/对数/三角/取整/公约数"],
-  ["编码", "encoding", "网址/六十四/十六进制 编解码"],
-  ["系统", "sys", "参数/环境/平台/退出（仅服务端）"],
-  ["数据库", "db", "嵌入式 SQL：打开/执行/查询/表/关闭（仅服务端）"],
-  ["网页", "html", "服务端渲染：渲染/渲染文件/页面/转义"],
-  ["应用", "app", "窗口/手机/原生窗口/写页面（纯代码图形页面）"],
-  ["测试", "assert", "相等/为真/汇总/清零（单元测试）"],
-];
-
-function wordAt(doc, pos) {
-  const range = doc.getWordRangeAtPosition(pos, /[\p{L}\p{Nd}_]+/u);
-  return range ? doc.getText(range) : "";
-}
-
-function completionItems(prefix) {
-  const items = [];
-  const add = (label, kind, detail, doc) => items.push(
-    new vscode.CompletionItem(label, kind, detail, doc));
-  for (const [zh, en] of SAHOU_KEYWORDS) {
-    if (zh.startsWith(prefix)) add(zh, vscode.CompletionItemKind.Keyword, "sahou 关键字（英文 " + en + "）");
-    else if (en.startsWith(prefix)) add(en, vscode.CompletionItemKind.Keyword, "sahou keyword（中文 " + zh + "）");
-  }
-  for (const [zh, en, sig, desc] of SAHOU_BUILTINS) {
-    if (zh.startsWith(prefix)) add(zh, vscode.CompletionItemKind.Function, sig + " —— " + desc);
-    else if (en.startsWith(prefix)) add(en, vscode.CompletionItemKind.Function, sig + " —— " + desc);
-  }
-  for (const [zh, en, desc] of SAHOU_MODULES) {
-    if (zh.startsWith(prefix)) add(zh, vscode.CompletionItemKind.Module, desc);
-    else if (en.startsWith(prefix)) add(en, vscode.CompletionItemKind.Module, desc);
-  }
-  return items;
-}
-
-function hoverInfo(word) {
-  for (const [zh, en, sig, desc] of SAHOU_BUILTINS) {
-    if (word === zh || word === en) {
-      return new vscode.Hover(new vscode.MarkdownString(
-        "**sahou 内置函数** `" + sig + "`\n\n" + desc + "\n\n（英文写法：" + en + "）"));
-    }
-  }
-  for (const [zh, en] of SAHOU_MODULES) {
-    if (word === zh || word === en) {
-      return new vscode.Hover(new vscode.MarkdownString("**sahou 标准库模块** " + desc));
-    }
-  }
-  for (const [zh, en] of SAHOU_KEYWORDS) {
-    if (word === zh) return new vscode.Hover(new vscode.MarkdownString("**sahou 关键字**（英文 " + en + "）"));
-    if (word === en) return new vscode.Hover(new vscode.MarkdownString("**sahou keyword**（中文 " + zh + "）"));
-  }
-  return null;
-}
-
-function registerLanguageFeaturesImpl(context) {
-  const selector = { language: "sahou" };
-  context.subscriptions.push(vscode.languages.registerCompletionItemProvider(
-    selector, {
-      provideCompletionItems(doc, pos) {
-        const word = wordAt(doc, pos);
-        if (!word) return [];
-        return completionItems(word);
-      }
-    }));
-  context.subscriptions.push(vscode.languages.registerHoverProvider(
-    selector, {
-      provideHover(doc, pos) {
-        const word = wordAt(doc, pos);
-        return word ? hoverInfo(word) : null;
-      }
-    }));
-}

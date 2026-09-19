@@ -1,0 +1,16 @@
+{
+  "iconDefinitions": {
+    "_saho": {
+      "iconPath": "./icons/saho-file.svg"
+    }
+  },
+  "fileExtensions": {
+    "saho": "_saho"
+  },
+  "fileNames": {
+    "stones.yml": "_saho"
+  },
+  "languageIds": {
+    "sahou": "_saho"
+  }
+}

@@ -94,7 +94,7 @@
     "module": {
       "patterns": [
         {
-          "match": "\\b(网络|net|页面|page|随机|random|时间|time|数学|math|编码|encoding|系统|sys)(?=\\.)",
+          "match": "\\b(网络|net|页面|page|随机|random|时间|time|数学|math|编码|encoding|系统|sys|数据库|db|网页|html|应用|app|测试|assert)(?=\\.)",
           "name": "entity.name.module.sahou"
         }
       ]
@@ -102,7 +102,7 @@
     "builtin": {
       "patterns": [
         {
-          "match": "\\b(打印|print|输入|input|数|num|文本转数|str_to_num|文本|str|列表|list|字典|dict|从a到b|range_to|长度|len|取|slice|抛出|throw|类型|type_of|包含|contains|求和|sum|最大值|max|最小值|min|排序|sorted|反转|reversed|连接|join|分割|split|替换|replace|修剪|trim|转大写|upper|转小写|lower|绝对值|abs|平方根|sqrt|四舍五入|round|读取文件|read_file|写入文件|write_file|文件存在|file_exists)(?=\\s*\\()",
+          "match": "\\b(打印|print|输入|input|数|num|文本转数|str_to_num|文本|str|列表|list|字典|dict|从a到b|range_to|长度|len|取|slice|抛出|throw|类型|type_of|包含|contains|求和|sum|最大值|max|最小值|min|排序|sorted|反转|reversed|连接|join|分割|split|替换|replace|修剪|trim|转大写|upper|转小写|lower|绝对值|abs|平方根|sqrt|四舍五入|round|读取文件|read_file|写入文件|write_file|文件存在|file_exists|位置|find)(?=\\s*\\()",
           "name": "support.function.builtin.sahou"
         }
       ]
@@ -114,15 +114,19 @@
           "name": "constant.language.sahou"
         },
         {
-          "match": "\\b(if|elif|else|while|for|in|end|fn|return|let|try|catch|and|or|not)\\b|(?<![\\p{L}\\p{Nd}_])(如果|又如|否则|当|遍历|于|完毕|函数|返回|设|尝试|接住|并且|或者|非)(?![\\p{L}\\p{Nd}_])",
+          "match": "\\b(if|elif|else|while|for|in|end|fn|return|let|try|catch|and|or|not|break|continue|cell)\\b|(?<![\\p{L}\\p{Nd}_])(如果|又如|否则|当|遍历|于|完毕|函数|返回|设|尝试|接住|并且|或者|非|跳出|继续|格子)(?![\\p{L}\\p{Nd}_])",
           "name": "keyword.control.sahou"
+        },
+        {
+          "match": "(?<![\\p{L}\\p{Nd}_])它(?![\\p{L}\\p{Nd}_])",
+          "name": "variable.language.pipe.sahou"
         }
       ]
     },
     "operator": {
       "patterns": [
         {
-          "match": "=>|==|!=|<=|>=|[+\\-*/%<>=]",
+          "match": "->|→|=>|==|!=|<=|>=|[+\\-*/%<>=]",
           "name": "keyword.operator.sahou"
         }
       ]

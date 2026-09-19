@@ -1,0 +1,69 @@
+# 卅语言 CI：Windows 全套回归 + Linux 构建检查。
+# 测试脚本与开发机同一套（tests/*.sh，windows-latest 的 Git Bash 原样可跑；
+# wasm 测试需要 node，runner 自带）。
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows-full:
+    name: Windows · 构建 + 全套回归
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+
+      - name: 构建 sahou.exe
+        run: go build -o sahou.exe .
+
+      - name: 解释器单元测试
+        run: go test ./internal/...
+
+      - name: 回归测试（核心/转译/模块/标准库/stones 包/自带库/网络/全栈/应用）
+        shell: bash
+        run: |
+          bash tests/run.sh
+          bash tests/build.sh
+          bash tests/modules.sh
+          bash tests/stdlib.sh
+          bash tests/packages.sh
+          bash tests/pack.sh
+          bash tests/net.sh
+          bash tests/fullstack.sh
+          bash tests/app.sh
+
+      - name: WASM 构建 + 浏览器运行时回归
+        shell: bash
+        run: bash tests/wasm.sh
+
+      - name: 上传成品（exe 单文件自带十四包与 wasm 运行时）
+        uses: actions/upload-artifact@v4
+        with:
+          name: sahou-windows
+          path: |
+            sahou.exe
+            sahou.wasm
+
+  linux-build:
+    name: Linux · 构建检查
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+
+      # 原生窗口（WebView2）只在 Windows 编译，其余代码跨平台：
+      # 这里验证 Linux 下全部包可编译，为后续 Linux 发布做准备。
+      - name: 编译全部包
+        run: go build ./...

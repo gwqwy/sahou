@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!-- sahou（卅）文件图标：小尺寸简化版 —— 渐变圆角方块 + 三颗石子 -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#0EA5E9"/>
+    </linearGradient>
+  </defs>
+  <rect width="16" height="16" rx="3.5" fill="url(#g)"/>
+  <circle cx="4" cy="11.5" r="1.6" fill="#ffffff"/>
+  <circle cx="8" cy="8.5" r="2.1" fill="#ffffff"/>
+  <circle cx="12.2" cy="4.8" r="2.6" fill="#ffffff"/>
+</svg>
