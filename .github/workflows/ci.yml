@@ -21,6 +21,14 @@ jobs:
         with:
           go-version: "1.23.x"
 
+      # stonesfs.go 编译期内嵌 sahou.wasm，而根目录成品不入库（发布走 Releases）。
+      # 按仓库口径"克隆后先生成 wasm 运行时，再构建"：这里先编一份供内嵌。
+      - name: 生成 wasm 运行时（stonesfs.go 内嵌需要）
+        env:
+          GOOS: js
+          GOARCH: wasm
+        run: go build -o sahou.wasm ./cmd/sahouwasm
+
       - name: 构建 sahou.exe
         run: go build -o sahou.exe .
 
@@ -62,6 +70,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.23.x"
+
+      # 同上：根包（go build ./... 包含）编译期内嵌 sahou.wasm，先生成再编。
+      - name: 生成 wasm 运行时
+        env:
+          GOOS: js
+          GOARCH: wasm
+        run: go build -o sahou.wasm ./cmd/sahouwasm
 
       # 原生窗口（WebView2）只在 Windows 编译，其余代码跨平台：
       # 这里验证 Linux 下全部包可编译，为后续 Linux 发布做准备。

@@ -16,6 +16,8 @@ import (
 //go:embed stones
 var stonesDir embed.FS
 
+// sahou.wasm 不入库（成品走 Releases），克隆后不存在：构建本包前先按
+// GOOS=js GOARCH=wasm go build -o sahou.wasm ./cmd/sahouwasm 生成（或 bash tests/wasm.sh）。
 //go:embed wasm_exec.js sahou.wasm
 var wasmRuntime embed.FS
 
