@@ -1,0 +1,11 @@
+# 换行统一：文本一律 LF 入库、LF 检出。
+# tests/run.sh 等脚本按字节比较快照与 heredoc 期望块，CRLF 检出会让全套一致性测试失败；
+# bash 脚本本身也经不起 CRLF。Windows 上的编辑器/VS Code/bash 均可正常处理 LF。
+* text=auto eol=lf
+
+# 二进制文件不做任何转换
+*.png binary
+*.vsix binary
+*.exe binary
+*.wasm binary
+*.db binary
