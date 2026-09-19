@@ -1199,8 +1199,11 @@ func (p *Parser) dictLit() (Expr, *errs.Error) {
 	p.next()   // {
 	p.skipNL() // 花括号不再抑制换行，字典内部由解析器自行跳过
 	var items []DictItem
-	for !p.at(lexer.RBRACE) {
+	for {
 		p.skipNL()
+		if p.at(lexer.RBRACE) {
+			break // 空字典，或条目结束（含尾逗号后 } 独立成行）
+		}
 		key, e := p.expr()
 		if e != nil {
 			return nil, e
@@ -1219,8 +1222,9 @@ func (p *Parser) dictLit() (Expr, *errs.Error) {
 		items = append(items, DictItem{Key: key, Val: val})
 		if p.at(lexer.COMMA) {
 			p.next()
-			continue
+			continue // 尾逗号后 } 独立成行也由循环顶部的 skipNL/RBRACE 兜住
 		}
+		p.skipNL() // 没有逗号：} 可能独立成行，跳过换行后再做收尾检查
 		break
 	}
 	if !p.at(lexer.RBRACE) {
