@@ -44,7 +44,7 @@ check "serve-wasm_exec.js" "200" "$(curl -s -o /dev/null -w "%{http_code}" http:
 check "serve-sahou.wasm" "200" "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/sahou.wasm)"
 check "serve-别名卅.wasm" "200" "$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:8000/%E5%8D%85.wasm")"
 check "serve-壳页" "有" "$(curl -s http://127.0.0.1:8000/hello.saho | grep -q "__SAHO_PAGE" && echo 有 || echo 无)"
-check "serve-缺页404" "404" "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/没有.saho)"
+check "serve-缺页404" "404" "$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:8000/%E6%B2%A1%E6%9C%89.saho")"
 kill $SRV 2>/dev/null
 taskkill //F //IM sahou.exe >/dev/null 2>&1
 
