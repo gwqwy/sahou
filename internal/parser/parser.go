@@ -471,6 +471,9 @@ func (p *Parser) ifStmt() (Stmt, *errs.Error) {
 		if e != nil {
 			return nil, e
 		}
+		if e := p.assignInCondHint(); e != nil {
+			return nil, e
+		}
 		body, braced, e := p.blockBody("如果")
 		if e != nil {
 			return nil, e
@@ -591,11 +594,25 @@ func itoa(n int) string {
 	return string(buf[i:])
 }
 
+// assignInCondHint 条件解析完却停在单个 = 上：新手高频错误（把比较写成赋值），给专门提示。
+func (p *Parser) assignInCondHint() *errs.Error {
+	if p.at(lexer.ASSIGN) {
+		return errs.SyntaxHint(
+			"条件里要写 ==（两个等号）才是\"等于\"比较；单个 = 是赋值，条件里放不了。",
+			"conditions need == for equality; a single = is assignment.",
+			"例如：如果 分数 == 60 … 完毕。", p.cur().Line)
+	}
+	return nil
+}
+
 func (p *Parser) whileStmt() (Stmt, *errs.Error) {
 	line := p.cur().Line
 	p.next()
 	cond, e := p.expr()
 	if e != nil {
+		return nil, e
+	}
+	if e := p.assignInCondHint(); e != nil {
 		return nil, e
 	}
 	body, braced, e := p.blockBody("当")

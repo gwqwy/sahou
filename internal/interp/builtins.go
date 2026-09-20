@@ -2,6 +2,7 @@ package interp
 
 import (
 	"fmt"
+	"io"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -246,7 +247,7 @@ func biPrint(in *Interp, args []Value, line int) (Value, *errs.Error) {
 		}
 		end = s
 	}
-	fmt.Fprint(in.Stdout, Str(args[0])+end)
+	io.WriteString(in.Stdout, Str(args[0])+end)
 	return nil, nil
 }
 
@@ -1040,6 +1041,12 @@ func mDictRemove(in *Interp, recv Value, args []Value, named map[string]Value, l
 		return nil, errs.RuntimeHint(zh, en, "现有的键有："+strings.Join(cands, "、")+"。", line)
 	}
 	return nil, nil
+}
+
+// ValueMemberNames 值的成员方法名（列表/字典上的点调用），编辑器补全用：
+// 变量名. 触发补全时，名字不是模块/stones 包就给这份通用成员建议。
+func ValueMemberNames() []string {
+	return []string{"添加", "append", "去重", "dedupe", "删除", "remove"}
 }
 
 // CompletionWords 供 LSP 补全：全部关键字 + 内置函数名 + 模块名（中英双语）。

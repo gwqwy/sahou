@@ -120,6 +120,9 @@ func completionItems(text string, pos position) []map[string]interface{} {
 				add(filterByPrefix(members, tail), 3) // Function/Field 混合
 				return items
 			}
+			// 不是模块/包名的 xxx. —— 当作某个值（列表/字典）来给成员方法建议
+			add(filterByPrefix(interp.ValueMemberNames(), tail), 2) // Method
+			return items
 		}
 	}
 	words := []string{}

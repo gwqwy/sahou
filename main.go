@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"sahou/internal/encodesrc"
 	"sahou/internal/errs"
@@ -190,6 +191,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"sahou/internal/errs"
 	"sahou/internal/interp"
@@ -199,6 +201,24 @@ import (
 
 //go:embed main.saho
 var src string
+
+// periodicFlush 每 50ms 冲一次缓冲输出，交互场景（窗口事件/服务器）里打印最迟 50ms 可见。
+func periodicFlush(w *bufio.Writer) func() {
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				_ = w.Flush()
+			}
+		}
+	}()
+	return func() { close(stop) }
+}
 
 func main() {
 	toks, e := lexer.Tokenize(src)
@@ -217,17 +237,25 @@ func main() {
 	}
 	in := interp.New()
 	in.ScriptDir = filepath.Dir(exe) // 资产目录按 exe 所在目录算
+	bw := bufio.NewWriterSize(os.Stdout, 1<<16)
+	in.Stdout = bw
+	stopFlush := periodicFlush(bw)
+	defer stopFlush()
+	defer bw.Flush()
 	std := bufio.NewReader(os.Stdin)
 	in.Input = func(prompt string) string {
+		bw.Flush()
 		fmt.Print(prompt)
 		line, _ := std.ReadString('\n')
 		return strings.TrimRight(line, "\r\n")
 	}
 	if e := in.Run(prog); e != nil {
+		bw.Flush()
 		fmt.Fprintln(os.Stderr, errs.FormatUncaught(e, in.Chain()))
 		os.Exit(1)
 	}
 	if code := in.ExitCode; code >= 0 {
+		bw.Flush()
 		os.Exit(code)
 	}
 }
@@ -433,20 +461,48 @@ func runFile(path string, extraArgs []string) {
 	if abs, err := filepath.Abs(filepath.Dir(path)); err == nil {
 		in.ScriptDir = abs
 	}
+	// 输出提速：打印批量写出，定时冲刷保证交互场景（服务器/窗口事件）最迟 50ms 可见
+	bw := bufio.NewWriterSize(os.Stdout, 1<<16)
+	in.Stdout = bw
+	stopFlush := periodicFlush(bw)
+	defer stopFlush()
+	defer bw.Flush()
 	std := bufio.NewReaderSize(os.Stdin, 1<<16)
 	in.Input = func(prompt string) string {
+		bw.Flush() // 提示符之前把程序已打印的内容冲出去
 		fmt.Print(prompt)
 		line, _ := std.ReadString('\n')
 		return strings.TrimRight(line, "\r\n")
 	}
 	in.ProgramArgs = extraArgs
 	if e := in.Run(c.prog); e != nil {
+		bw.Flush() // 先冲掉程序已打印的输出再报错，保证输出顺序
 		fmt.Fprintln(os.Stderr, errs.FormatUncaught(e, chainOf(in)))
 		os.Exit(1)
 	}
 	if code := in.ExitCode; code >= 0 {
+		bw.Flush()
 		os.Exit(code) // 系统.退出(码)
 	}
+}
+
+// periodicFlush 每 50ms 冲一次缓冲输出；返回停止函数。os.Exit 会跳过 defer，
+// 所以退出码路径里仍需显式 bw.Flush()。
+func periodicFlush(w *bufio.Writer) func() {
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				_ = w.Flush()
+			}
+		}
+	}()
+	return func() { close(stop) }
 }
 
 // chainOf 读取求值器记录的调用链。
@@ -486,8 +542,15 @@ func repl() {
 	fmt.Println("卅交互环境 — 输入完一行语句会立刻执行；写函数/如果 等块时按回车继续输入，单独一行 完毕 结束块。退出请按 Ctrl+C。")
 	in := interp.New()
 	in.ScriptDir, _ = os.Getwd()
+	// 输出提速：REPL 里同样批量写出，提示符前同步冲刷
+	bw := bufio.NewWriterSize(os.Stdout, 1<<16)
+	in.Stdout = bw
+	stopFlush := periodicFlush(bw)
+	defer stopFlush()
+	defer bw.Flush()
 	std := bufio.NewReaderSize(os.Stdin, 1<<16)
 	in.Input = func(prompt string) string {
+		bw.Flush()
 		fmt.Print(prompt)
 		line, _ := std.ReadString('\n')
 		return strings.TrimRight(line, "\r\n")
@@ -495,6 +558,7 @@ func repl() {
 	buf := bufio.NewReader(os.Stdin)
 	var pending []string
 	for {
+		bw.Flush() // 上一轮的输出先落地，再显示提示符
 		if len(pending) == 0 {
 			fmt.Print("卅> ")
 		} else {
