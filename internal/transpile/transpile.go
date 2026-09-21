@@ -399,6 +399,11 @@ func (b *Builder) stmt(s parser.Stmt) *errs.Error {
 		}
 		switch t := st.Target.(type) {
 		case *parser.Ident:
+			if _, isBuiltin := builtinJS[t.Name]; isBuiltin {
+				return errs.SyntaxHint(
+					t.Name+" 是内置函数的名字，不能改作他用。", t.Name+" is a builtin name and cannot be reassigned.",
+					"请换一个变量名。", st.Line)
+			}
 			b.linef("%s = %s;", rename(t.Name), val)
 		case *parser.Index:
 			xx, e2 := b.expr(t.X)
@@ -484,6 +489,11 @@ func (b *Builder) stmt(s parser.Stmt) *errs.Error {
 		b.ind--
 		b.linef("}")
 	case *parser.FnStmt:
+		if _, isBuiltin := builtinJS[st.Name]; isBuiltin {
+			return errs.SyntaxHint(
+				st.Name+" 是内置函数，不能重新定义。", st.Name+" is a builtin function and cannot be redefined.",
+				"请换一个名字，比如 "+st.Name+"2。", st.Line)
+		}
 		params := make([]string, len(st.Params))
 		for i, p := range st.Params {
 			params[i] = rename(p)
