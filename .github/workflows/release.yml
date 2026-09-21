@@ -1,0 +1,109 @@
+# 卅语言 · 自动发版：构建完成后上传 GitHub Releases。
+# 两种触发方式：
+#   1) 推送 v* 标签（git tag v0.2.2 && git push origin v0.2.2）→ 自动构建并发布该版本；
+#   2) Actions 页手动运行（workflow_dispatch），填版本号 → 工作流自动创建标签再发布。
+# 发布物：sahou.exe（单文件自带全部 stones 包与 wasm 运行时）、
+#        sahou.wasm + wasm_exec.js（网页部署用）、
+#        VS Code 扩展 vsix（存在 sahou-language-<版本>.vsix 时）、SHA256SUMS.txt。
+# 全量测试由 ci.yml 在 main 上把关；本工作流做发布前冒烟验证。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（如 v0.2.1）"
+        required: true
+        default: "v0.2.1"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 构建 + 上传 Releases
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+
+      - name: 计算版本号与标签
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 手动触发时创建并推送标签
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "标签 $TAG 已存在，跳过创建"
+          else
+            git tag -a "$TAG" -m "卅 $TAG"
+            git push origin "$TAG"
+          fi
+
+      # 手动触发时以标签对应提交为准构建（发布物与标签严格对应）
+      - name: 切到标签对应提交
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ver.outputs.tag }}
+
+      - name: 生成 wasm 运行时（stonesfs.go 内嵌需要）
+        env:
+          GOOS: js
+          GOARCH: wasm
+        run: go build -o sahou.wasm ./cmd/sahouwasm
+
+      - name: 构建 sahou.exe
+        run: go build -trimpath -ldflags "-s -w" -o sahou.exe .
+
+      - name: 发布前冒烟验证
+        shell: bash
+        run: |
+          ./sahou.exe run examples/入门演示.saho > /dev/null
+          ./sahou.exe stones | grep -q 时长库
+          ./sahou.exe stones | grep -q 罗马数字
+          echo "冒烟通过：exe 可运行且自带十八包"
+
+      - name: 整理发布物
+        shell: bash
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          mkdir -p release
+          cp sahou.exe release/
+          cp sahou.wasm release/
+          cp wasm_exec.js release/
+          if [ -f "editors/vscode/sahou-language-${TAG#v}.vsix" ]; then
+            cp "editors/vscode/sahou-language-${TAG#v}.vsix" release/
+          fi
+          cd release
+          sha256sum -- * > SHA256SUMS.txt
+
+      - name: 上传到 GitHub Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+            echo "已更新现有 Release $TAG 的附件"
+          else
+            gh release create "$TAG" release/* \
+              --title "卅 $TAG" \
+              --generate-release-notes
+          fi
