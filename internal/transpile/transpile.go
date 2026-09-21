@@ -85,7 +85,29 @@ type Builder struct {
 	out   strings.Builder
 	ind   int
 	mods  map[string]*modUnit
-	itVar string // 管道步骤生成时，它 绑定到的 JS 参数名
+	itVar string            // 管道步骤生成时，它 绑定到的 JS 参数名
+	decl  []map[string]bool // 已声明名字的作用域栈：栈内名字遮蔽同名内置函数（与解释器赋值遮蔽语义一致）
+}
+
+// pushDecl 进入一个作用域（单元顶层/函数体），其中的名字优先按变量解析。
+func (b *Builder) pushDecl(names []string) {
+	set := map[string]bool{}
+	for _, n := range names {
+		set[n] = true
+	}
+	b.decl = append(b.decl, set)
+}
+
+func (b *Builder) popDecl() { b.decl = b.decl[:len(b.decl)-1] }
+
+// declared 名字是否在任一 enclosing 作用域里声明过。
+func (b *Builder) declared(name string) bool {
+	for i := len(b.decl) - 1; i >= 0; i-- {
+		if b.decl[i][name] {
+			return true
+		}
+	}
+	return false
 }
 
 // modIDByName 找到某默认名对应的模块 id（同一模块可能被多个名字引入，取首个）。
@@ -125,6 +147,7 @@ func Build(prog *parser.Program, baseDir string) (string, *errs.Error) {
 	for _, u := range mods {
 		b.linef("__saho_require(%s, function () {", goQuote(u.id))
 		b.ind++
+		b.pushDecl(u.names)
 		for _, n := range u.names {
 			b.linef("let %s;", rename(n))
 		}
@@ -138,11 +161,13 @@ func Build(prog *parser.Program, baseDir string) (string, *errs.Error) {
 			parts[i] = "[" + goQuote(n) + ", " + rename(n) + "]"
 		}
 		b.linef("return new Map([%s]);", strings.Join(parts, ", "))
+		b.popDecl()
 		b.ind--
 		b.linef("});")
 	}
 	b.out.WriteString("\n(function () {\n  \"use strict\";\n")
 	b.ind = 1
+	b.pushDecl(names)
 	for _, n := range names {
 		b.linef("let %s;", rename(n))
 	}
@@ -151,6 +176,7 @@ func Build(prog *parser.Program, baseDir string) (string, *errs.Error) {
 			return "", e
 		}
 	}
+	b.popDecl()
 	b.out.WriteString("})();\n")
 	return b.out.String(), nil
 }
@@ -472,6 +498,7 @@ func (b *Builder) stmt(s parser.Stmt) *errs.Error {
 		}
 		b.linef("%s = __saho_defn(function %s(%s) {", rename(st.Name), rename(st.Name), strings.Join(params, ", "))
 		b.ind++
+		b.pushDecl(append(append([]string{}, st.Params...), names...))
 		for _, n := range names {
 			if n == st.Name || paramSet[n] {
 				continue // 自身名字由外层 let 承载；参数名是函数级绑定，不能再 let
@@ -483,6 +510,7 @@ func (b *Builder) stmt(s parser.Stmt) *errs.Error {
 				return e
 			}
 		}
+		b.popDecl()
 		b.linef("return null;")
 		b.ind--
 		b.linef("}, [%s], %q);", joinRenamed(st.Params), st.Name)
@@ -624,7 +652,9 @@ func (b *Builder) expr(x parser.Expr) (string, *errs.Error) {
 		for i, p := range e.Params {
 			params[i] = rename(p)
 		}
+		b.pushDecl(e.Params)
 		body, err := b.expr(e.Body)
+		b.popDecl()
 		if err != nil {
 			return "", err
 		}
@@ -689,8 +719,12 @@ func (b *Builder) strLit(e *parser.StrLit) (string, *errs.Error) {
 	return sb.String(), nil
 }
 
-// ident 变量读取：内置函数名→辅助函数；模块名→模块对象/报错；其余原名。
+// ident 变量读取：本作用域声明过的名字→变量（可遮蔽内置函数）；内置函数名→辅助函数；
+// 模块名→模块对象/报错；其余原名。
 func (b *Builder) ident(e *parser.Ident) string {
+	if b.declared(e.Name) {
+		return rename(e.Name)
+	}
 	if h, ok := builtinJS[e.Name]; ok {
 		return h
 	}
@@ -759,8 +793,10 @@ func (b *Builder) call(e *parser.Call) (string, *errs.Error) {
 
 	switch fn := e.Fn.(type) {
 	case *parser.Ident:
-		if h, ok := builtinJS[fn.Name]; ok {
-			return h + "(" + strings.Join(pos, ", ") + emitOpts() + ")", nil
+		if !b.declared(fn.Name) {
+			if h, ok := builtinJS[fn.Name]; ok {
+				return h + "(" + strings.Join(pos, ", ") + emitOpts() + ")", nil
+			}
 		}
 		target := b.ident(fn)
 		if len(named) > 0 {
