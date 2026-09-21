@@ -105,5 +105,5 @@ jobs:
           else
             gh release create "$TAG" release/* \
               --title "卅 $TAG" \
-              --generate-release-notes
+              --generate-notes
           fi
