@@ -119,5 +119,5 @@ jobs:
                   *"$TAG"*) gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id" >/dev/null 2>&1 || true ;;
                 esac
               done
-          gh release create "$TAG" release/sahou.exe --title "卅 $TAG" "${ARGS[@]}"
-          echo "已发布 $TAG（仅 sahou.exe）"
+          gh release create "$TAG" release/* --title "卅 $TAG" "${ARGS[@]}"
+          echo "已发布 $TAG：$(ls release | tr '\n' ' ')"
