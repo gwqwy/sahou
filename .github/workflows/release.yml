@@ -2,7 +2,8 @@
 # 两种触发方式：
 #   1) 推送 v* 标签（git tag v0.2.2 && git push origin v0.2.2）→ 自动构建并发布该版本；
 #   2) Actions 页手动运行（workflow_dispatch），填版本号 → 工作流自动创建标签再发布。
-# 发布物：sahou.exe —— 单文件自带全部 stones 标准库包与 wasm 浏览器运行时。
+# 发布物：sahou.exe —— 单文件自带全部 stones 标准库包与 wasm 浏览器运行时；
+#         以及与标签版本匹配的 VS Code 扩展 vsix（存在时一并发布）。
 # Release 说明取自根目录 CHANGELOG.md 里与标签同名的小节（## v0.2.1 这样的二级标题）；
 # 找不到对应小节时退回 GitHub 自动生成的提交列表。
 # 全量测试由 ci.yml 在 main 上把关；本工作流做发布前冒烟验证。
@@ -82,8 +83,15 @@ jobs:
       - name: 整理发布物
         shell: bash
         run: |
+          TAG="${{ steps.ver.outputs.tag }}"
           mkdir -p release
           cp sahou.exe release/
+          # 与标签版本匹配的扩展（v0.2.1 → sahou-language-0.2.1.vsix）
+          if [ -f "editors/vscode/sahou-language-${TAG#v}.vsix" ]; then
+            cp "editors/vscode/sahou-language-${TAG#v}.vsix" release/
+          else
+            echo "提示：没有找到 editors/vscode/sahou-language-${TAG#v}.vsix，本次不发扩展附件"
+          fi
 
       - name: 上传到 GitHub Releases
         shell: bash
