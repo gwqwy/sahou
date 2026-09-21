@@ -3,7 +3,7 @@
 #   1) 推送 v* 标签（git tag v0.2.2 && git push origin v0.2.2）→ 自动构建并发布该版本；
 #   2) Actions 页手动运行（workflow_dispatch），填版本号 → 工作流自动创建标签再发布。
 # 发布物：sahou.exe —— 单文件自带全部 stones 标准库包与 wasm 浏览器运行时。
-# Release 说明取自 docs/发布说明.md 里与标签同名的小节（## v0.2.1 这样的二级标题）；
+# Release 说明取自根目录 CHANGELOG.md 里与标签同名的小节（## v0.2.1 这样的二级标题）；
 # 找不到对应小节时退回 GitHub 自动生成的提交列表。
 # 全量测试由 ci.yml 在 main 上把关；本工作流做发布前冒烟验证。
 name: Release
@@ -91,12 +91,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
-          # 说明：取 docs/发布说明.md 里 "## <标签>" 小节；没有就用 GitHub 自动生成的提交列表
+          # 说明：取根目录 CHANGELOG.md 里 "## <标签>" 小节；没有就用 GitHub 自动生成的提交列表
           awk -v tag="$TAG" '
             $0 == "## " tag { flag = 1; next }
             /^## / { flag = 0 }
             flag { print }
-          ' docs/发布说明.md > release_notes.md || true
+          ' CHANGELOG.md > release_notes.md || true
           if [ -s release_notes.md ]; then
             ARGS=(--notes-file release_notes.md)
           else
