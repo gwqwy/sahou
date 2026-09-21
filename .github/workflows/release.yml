@@ -91,9 +91,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
-          # 说明：取根目录 CHANGELOG.md 里 "## <标签>" 小节；没有就用 GitHub 自动生成的提交列表
+          # 说明：取根目录 CHANGELOG.md 里以 "## <标签>" 开头的小节（到下一个 ## 为止，
+          # 即只截取当前版本的更新说明）；没有对应小节就用 GitHub 自动生成的提交列表
           awk -v tag="$TAG" '
-            $0 == "## " tag { flag = 1; next }
+            $0 ~ "^## " tag { flag = 1; next }
             /^## / { flag = 0 }
             flag { print }
           ' CHANGELOG.md > release_notes.md || true
