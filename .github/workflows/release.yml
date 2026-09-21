@@ -102,10 +102,13 @@ jobs:
           else
             ARGS=(--generate-notes)
           fi
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" release/sahou.exe --clobber
-            gh release edit "$TAG" --notes-file release_notes.md || true
-            echo "已更新现有 Release $TAG"
-          else
-            gh release create "$TAG" release/sahou.exe --title "卅 $TAG" "${ARGS[@]}"
-          fi
+          # 先清掉同名旧 Release（删标签会把已发布 Release 变成草稿残留），再全新创建
+          gh release delete "$TAG" --yes --cleanup-tag=false 2>/dev/null || true
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.draft == true) | [.id, (.name // "")] | @tsv' \
+            | while IFS="$(printf '\t')" read -r id name; do
+                case "$name" in
+                  *"$TAG"*) gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id" >/dev/null 2>&1 || true ;;
+                esac
+              done
+          gh release create "$TAG" release/sahou.exe --title "卅 $TAG" "${ARGS[@]}"
+          echo "已发布 $TAG（仅 sahou.exe）"
