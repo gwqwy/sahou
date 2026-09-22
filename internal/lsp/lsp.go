@@ -1,6 +1,7 @@
 // Package lsp 提供 `sahou lsp` 子命令：stdio 上的极简语言服务器。
-// 只做一件事——打开/修改 .saho 文件时推送语法诊断（词法 + 解析），
-// 让 VS Code 等编辑器实时显示错误波浪线。
+// 诊断（打开/修改 .saho 时推送词法+解析错误）、上下文补全、悬停文档。
+// 悬停的说明数据来自 editors/shared/language.json（main 包注入 SharedJSON；
+// 未注入时悬停退化为空，诊断与补全不受影响）。
 package lsp
 
 import (
@@ -17,6 +18,38 @@ import (
 	"sahou/internal/parser"
 	"sahou/internal/stonesrc"
 )
+
+// SharedJSON 编辑器共享元数据（editors/shared/language.json 的内容）；
+// 由命令行入口注入，供悬停使用。
+var SharedJSON string
+
+// sharedLang SharedJSON 的解析结果。
+type sharedLang struct {
+	Keywords []struct {
+		Zh, En, Brief string
+	}
+	Builtins []struct {
+		Zh, En, Signature, Brief, Side string
+	}
+	Modules []struct {
+		Zh, En, Brief string
+		Members       []string
+	}
+	Stones []struct {
+		Name, Brief string
+		Members     []string
+	}
+}
+
+var shared *sharedLang
+
+func parseShared() {
+	shared = &sharedLang{}
+	if SharedJSON == "" {
+		return
+	}
+	_ = json.Unmarshal([]byte(SharedJSON), shared)
+}
 
 type rpcMessage struct {
 	ID     *json.Number    `json:"id,omitempty"`
@@ -206,6 +239,7 @@ func packageNames() []string {
 
 // Run 启动 LSP 主循环（阻塞到客户端断开或 exit）。
 func Run() {
+	parseShared()
 	in := make([]byte, 0, 4096)
 	buf := make([]byte, 4096)
 	docs := map[string]string{} // uri -> 全文（补全上下文用）
@@ -271,6 +305,21 @@ func Run() {
 				"id":      m.ID,
 				"result":  map[string]interface{}{"isIncomplete": false, "items": items},
 			}))
+		case "textDocument/hover":
+			var hp completionParams
+			_ = json.Unmarshal(m.Params, &hp)
+			md := hoverMarkdown(docs[hp.TextDocument.URI], hp.Position)
+			var result interface{}
+			if md != "" {
+				result = map[string]interface{}{
+					"contents": map[string]interface{}{"kind": "markdown", "value": md},
+				}
+			}
+			writeMessage(os.Stdout, mustJSON(map[string]interface{}{
+				"jsonrpc": "2.0",
+				"id":      m.ID,
+				"result":  result,
+			}))
 		case "shutdown":
 			writeMessage(os.Stdout, mustJSON(map[string]interface{}{
 				"jsonrpc": "2.0", "id": m.ID, "result": nil,
@@ -317,6 +366,118 @@ func publish(w io.Writer, uri, text string) {
 		"method":  "textDocument/publishDiagnostics",
 		"params":  publishParams{URI: uri, Diagnostics: diagnostics(text)},
 	}))
+}
+
+// ---------- 悬停 ----------
+
+// wordAt 取位置上的完整单词（UTF-16 位置换算，字母/数字/下划线）。
+func wordAt(text string, pos position) string {
+	lines := strings.Split(text, "\n")
+	if pos.Line < 0 || pos.Line >= len(lines) {
+		return ""
+	}
+	line := lines[pos.Line]
+	units, byteIdx := 0, len(line)
+	for i, r := range line {
+		w := 1
+		if r >= 0x10000 {
+			w = 2
+		}
+		if units+w > pos.Character {
+			byteIdx = i
+			break
+		}
+		units += w
+		byteIdx = i
+	}
+	isWord := func(r rune) bool {
+		return r == '_' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r > 127
+	}
+	runes := []rune(line)
+	idx := len([]rune(line[:byteIdx]))
+	start, end := idx, idx
+	for start > 0 && isWord(runes[start-1]) {
+		start--
+	}
+	for end < len(runes) && isWord(runes[end]) {
+		end++
+	}
+	return string(runes[start:end])
+}
+
+// hoverMarkdown 光标所在名字的悬停说明；查不到返回空串。
+func hoverMarkdown(text string, pos position) string {
+	if shared == nil {
+		return ""
+	}
+	word := wordAt(text, pos)
+	if word == "" {
+		return ""
+	}
+	for _, b := range shared.Builtins {
+		if word == b.Zh || word == b.En {
+			return "**sahou 内置函数** `" + b.Signature + "`\n\n" + b.Brief +
+				"\n\n（英文写法：" + b.En + "；" + b.Side + "可用）"
+		}
+	}
+	for _, m := range shared.Modules {
+		if word == m.Zh || word == m.En {
+			members := strings.Join(m.Members, "、")
+			if members == "" {
+				members = "输入 . 后按上下文自动补全"
+			}
+			return "**sahou 标准库模块** " + m.Brief + "\n\n常见成员：" + members
+		}
+		if containsString(m.Members, word) {
+			return "**sahou 标准库模块 " + m.Zh + "/" + m.En + "** 的成员：" + word + "\n\n" + m.Brief
+		}
+	}
+	for _, s := range shared.Stones {
+		if word == s.Name {
+			members := strings.Join(dynamicStoneMembers(s.Name), "、")
+			return "**sahou stones 标准库包** " + s.Brief +
+				"\n\n用 `用 \"" + s.Name + "\" 引入` 后以 " + s.Name + ".成员 使用。\n\n顶层成员：" + members
+		}
+		if containsString(s.Members, word) {
+			return "**stones 包 " + s.Name + "** 的成员：" + word + "\n\n" + s.Brief
+		}
+	}
+	for _, k := range shared.Keywords {
+		if word == k.Zh {
+			return "**sahou 关键字**（英文 " + k.En + "）\n\n" + k.Brief
+		}
+		if word == k.En {
+			return "**sahou keyword**（中文 " + k.Zh + "）\n\n" + k.Brief
+		}
+	}
+	if word == "它" {
+		return "**管道占位符** `它`\n\n在 `值 -> 步骤 -> 步骤` 里指代流经当前步骤的值，" +
+			"例如 `成绩 -> 它 >= 60 -> 打印`。全角 `→` 与 `->` 等价。"
+	}
+	return ""
+}
+
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+// dynamicStoneMembers stones 包成员（内嵌/本地包动态解析，保证与实际内容一致）。
+func dynamicStoneMembers(pkg string) []string {
+	if members := interp.CompletionStoneMembers(pkg); len(members) > 0 {
+		return members
+	}
+	// 元数据兜底（包不在本机时）
+	for _, s := range shared.Stones {
+		if s.Name == pkg {
+			return s.Members
+		}
+	}
+	return nil
 }
 
 // ---------- JSON-RPC 帧 ----------

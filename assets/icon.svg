@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- 卅 语言图标：印章红底 + 白色「卅」字形（三竖一横，纯路径绘制，无字体依赖） -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#C23A22"/>
+      <stop offset="1" stop-color="#9E2417"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="104" fill="url(#bg)"/>
+  <g stroke="#FFFFFF" stroke-width="52" stroke-linecap="round" fill="none">
+    <path d="M 128 196 H 384"/>
+    <path d="M 148 118 V 402"/>
+    <path d="M 256 118 V 372"/>
+    <path d="M 364 118 V 402"/>
+  </g>
+</svg>

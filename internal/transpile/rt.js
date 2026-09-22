@@ -315,9 +315,10 @@ function __saho_get(x, name) {
   }
   throw { __saho: true, message: TypeName2(x) + " 没有成员。has no members." };
 }
-function __saho_defn(fn, params, name) {
+function __saho_defn(fn, params, name, defaults) {
   fn.__saho_params = params;
   fn.__saho_name = name;
+  if (defaults) fn.__saho_defaults = defaults;
   return fn;
 }
 function __saho_call(fn, pos, named) {
@@ -327,9 +328,11 @@ function __saho_call(fn, pos, named) {
       throw { __saho: true, message: "函数只要 " + ps.length + " 个参数，但给了至少 " + pos.length + " 个。too many arguments." };
     }
     var args = pos.slice();
+    var dfl = fn.__saho_defaults;
     for (var i = pos.length; i < ps.length; i++) {
       var p = ps[i];
       if (named && Object.prototype.hasOwnProperty.call(named, p)) { args.push(named[p]); continue; }
+      if (dfl && i < dfl.length && dfl[i] !== undefined) { args.push(dfl[i]); continue; }
       var sug = named ? __saho_suggest(p, Object.keys(named)) : "";
       throw { __saho: true, message: "函数缺少参数 " + p + "。" + (sug ? "你是不是想写 " + sug + "？" : "missing argument " + p + ".") };
     }
@@ -686,6 +689,104 @@ function __saho_fromJson(v) {
   }
   return v; // number / string / boolean
 }
+// ---------- v4 响应式格子（转译侧）：惰性求值 + 依赖失效 + 观察者 ----------
+// 语义与解释器 reactive.go 对齐：格子惰性计算；顶层赋值触发依赖失效与重算；
+// 页面.绑定/绑输入 通过观察者自动刷新。
+var __saho_cellDefs = {};
+var __saho_cellVals = {};
+var __saho_cellWatchers = {};
+var __saho_cellCount = 0;
+var __saho_track = null;
+var __saho_varGetters = {};
+var __saho_varSetters = {};
+function __saho_cell(name, fn, staticDeps) {
+  if (__saho_cellDefs[name] === undefined) __saho_cellCount++;
+  __saho_cellDefs[name] = { fn: fn, staticDeps: staticDeps || [], deps: new Set(), computed: false, computing: false };
+}
+function __saho_cell_read(name) {
+  var c = __saho_cellDefs[name];
+  if (c === undefined) {
+    throw { __saho: true, message: "变量 " + name + " 还没有定义。undefined variable " + name + "." };
+  }
+  if (__saho_track) __saho_track.add(name);
+  __saho_cell_ensure(name);
+  return __saho_cellVals[name];
+}
+function __saho_cell_ensure(name) {
+  var c = __saho_cellDefs[name];
+  if (!c || c.computed) return;
+  if (c.computing) {
+    throw { __saho: true, message: "格子 " + name + " 的计算形成了环。dependency cycle.", hint: "格子 A 依赖 B、B 又依赖 A 是不允许的；检查格子的依赖方向。" };
+  }
+  c.computing = true;
+  var deps = new Set(c.staticDeps || []);
+  var saved = __saho_track;
+  __saho_track = deps;
+  try {
+    __saho_cellVals[name] = c.fn();
+    c.deps = deps;
+    c.computed = true;
+  } finally {
+    __saho_track = saved;
+    c.computing = false;
+  }
+}
+var __saho_varGetters = {};
+var __saho_varSetters = {};
+function __saho_regvar(name, get, set) {
+  __saho_varGetters[name] = get;
+  __saho_varSetters[name] = set;
+}
+function __saho_topget(name) {
+  if (__saho_cellDefs[name] !== undefined) { __saho_cell_ensure(name); return __saho_cellVals[name]; }
+  if (__saho_varGetters[name]) return __saho_varGetters[name]();
+  return undefined;
+}
+function __saho_setvar_from_text(name, text) {
+  var cur = __saho_topget(name);
+  if (typeof cur === "number") {
+    var f = parseFloat(text);
+    if (isNaN(f)) return;
+    if (__saho_varSetters[name]) __saho_varSetters[name](f); else __saho_cellVals[name] = f;
+    __saho_changed(name, f);
+    return;
+  }
+  if (__saho_varSetters[name]) __saho_varSetters[name](text); else __saho_cellVals[name] = text;
+  __saho_changed(name, text);
+}
+function __saho_changed(name, value) {
+  var invalidated = {};
+  function invalidate(n) {
+    for (var cn in __saho_cellDefs) {
+      var c = __saho_cellDefs[cn];
+      if (c.deps.has(n) && !invalidated[cn]) { invalidated[cn] = true; c.computed = false; invalidate(cn); }
+    }
+  }
+  invalidate(name);
+  for (var cn in __saho_cellDefs) {
+    if (!__saho_cellDefs[cn].computed) __saho_cell_ensure(cn);
+  }
+  var fired = {};
+  function fire(n, v) {
+    if (fired[n]) return;
+    fired[n] = true;
+    for (var cn in __saho_cellDefs) {
+      if (__saho_cellDefs[cn].deps.has(n)) {
+        __saho_cell_ensure(cn);
+        fire(cn, __saho_cellVals[cn]);
+      }
+    }
+    var ws = __saho_cellWatchers[n];
+    if (ws) { for (var k = 0; k < ws.length; k++) ws[k](v); }
+  }
+  fire(name, value);
+}
+function __saho_watch(name, cb) {
+  if (!__saho_cellWatchers[name]) __saho_cellWatchers[name] = [];
+  __saho_cellWatchers[name].push(cb);
+}
+// ---------- v4 响应式格子（转译侧）结束 ----------
+
 // ---------- 页面/page 模块（只在浏览器宿主存在） ----------
 function __saho_needDom() {
   if (typeof document === "undefined") {
@@ -747,7 +848,25 @@ var page = {
   },
   "创建": function (tag) { __saho_needDom(); return __saho_markEl(document.createElement(tag)); },
   "加入": function (parent, child) { __saho_needDom(); parent.appendChild(child); return null; },
-  "移除": function (el) { __saho_needDom(); if (el.parentNode) el.parentNode.removeChild(el); return null; }
+  "移除": function (el) { __saho_needDom(); if (el.parentNode) el.parentNode.removeChild(el); return null; },
+  // v4 响应式绑定：输入框直接驱动变量；格子/变量变化自动刷新元素
+  "绑输入": function (el, name) {
+    __saho_needDom();
+    var apply = function () {
+      var text = el.value !== undefined ? el.value : "";
+      __saho_setvar_from_text(name, text);
+    };
+    el.addEventListener("input", apply);
+    apply();
+    return null;
+  },
+  "绑定": function (el, name) {
+    __saho_needDom();
+    __saho_watch(name, function (v) { el.textContent = __saho_str(v); });
+    var v = __saho_topget(name);
+    if (v !== undefined) el.textContent = __saho_str(v);
+    return null;
+  }
 };
 page["el"] = page["取元素"]; page["el_all"] = page["取全部"];
 page["set_text"] = page["置文本"]; page["get_text"] = page["取文本"];
@@ -755,6 +874,7 @@ page["value"] = page["值"]; page["set_value"] = page["置值"];
 page["set_style"] = page["置样式"]; page["set_attr"] = page["置属性"];
 page["on_click"] = page["点击"]; page["on_input"] = page["输入"]; page["on_submit"] = page["提交"];
 page["create"] = page["创建"]; page["append"] = page["加入"]; page["remove"] = page["移除"];
+page["bind"] = page["绑定"]; page["bind_input"] = page["绑输入"];
 // ---------- 网络/net 模块（浏览器端：JSON 可用；服务与同步请求不可用） ----------
 function __saho_no_server() {
   throw { __saho: true, message: "浏览器里开不了服务；服务端程序请用 网络 模块跑在 Node 或操作系统上。" };

@@ -106,8 +106,10 @@ func (d *Dict) KeysAsValues() []Value {
 type SahouFn struct {
 	Name   string // 匿名函数为 ""
 	Params []string
-	Body   []parser.Stmt
-	Env    *Env
+	// Defaults 与 Params 平行：nil 表示该参数没有默认值（v0.3；值在定义处求值一次）。
+	Defaults []Value
+	Body     []parser.Stmt
+	Env      *Env
 }
 
 // Builtin 内置函数：中英双名指向同一个实现（规范 6.1）。

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- 卅 语言标志：透明底朱红「卅」字形，适合浅色页面头部 -->
+  <g stroke="#C23A22" stroke-width="52" stroke-linecap="round" fill="none">
+    <path d="M 112 196 H 400"/>
+    <path d="M 148 112 V 412"/>
+    <path d="M 256 112 V 380"/>
+    <path d="M 364 112 V 412"/>
+  </g>
+</svg>

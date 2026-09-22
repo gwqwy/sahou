@@ -15,6 +15,7 @@ for f in tests/cases/010_numbers.saho tests/cases/020_strings.saho \
          tests/cases/030_lists_dicts.saho tests/cases/040_control.saho \
          tests/cases/050_functions.saho tests/cases/060_errors.saho \
          tests/cases/070_builtins2.saho tests/cases/097_builtin_shadow.saho \
+         tests/cases/098_default_params.saho tests/cases/099_cells.saho \
          examples/入门演示.saho; do
   name=$(basename "$f" .saho)
   expected="tests/cases/$name.out"

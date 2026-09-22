@@ -159,7 +159,8 @@ def write_png(path, size, rows):
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    out_dir = os.path.normpath(os.path.join(here, "..", "vscode", "sahou", "icons"))
+    editors_dir = os.path.dirname(here)  # editors/
+    out_dir = os.path.join(editors_dir, "vscode", "sahou", "icons")
     for size in (128, 256):
         rows = render(size)
         path = os.path.join(out_dir, "sahou-%d.png" % size)

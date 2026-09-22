@@ -225,7 +225,16 @@ func (in *Interp) execStmt(s parser.Stmt, env *Env) {
 				st.Name+" 是内置函数，不能重新定义。", st.Name+" is a builtin function and cannot be redefined.",
 				"请换一个名字，比如 "+st.Name+"2。", st.Line)})
 		}
-		env.Set(st.Name, &SahouFn{Name: st.Name, Params: st.Params, Body: st.Body, Env: env})
+		var dvals []Value
+		if len(st.Defaults) > 0 {
+			dvals = make([]Value, len(st.Defaults))
+			for i, d := range st.Defaults {
+				if d != nil {
+					dvals[i] = in.eval(d, env) // 默认值在定义处求值一次
+				}
+			}
+		}
+		env.Set(st.Name, &SahouFn{Name: st.Name, Params: st.Params, Defaults: dvals, Body: st.Body, Env: env})
 
 	case *parser.ReturnStmt:
 		var v Value
@@ -584,7 +593,16 @@ func (in *Interp) eval(x parser.Expr, env *Env) Value {
 		return in.evalBin(e, env)
 
 	case *parser.AnonFn:
-		return &SahouFn{Name: "", Params: e.Params, Body: []parser.Stmt{
+		var dvals []Value
+		if len(e.Defaults) > 0 {
+			dvals = make([]Value, len(e.Defaults))
+			for i, d := range e.Defaults {
+				if d != nil {
+					dvals[i] = in.eval(d, env)
+				}
+			}
+		}
+		return &SahouFn{Name: "", Params: e.Params, Defaults: dvals, Body: []parser.Stmt{
 			&parser.ReturnStmt{Value: e.Body, Line: e.Line},
 		}, Env: env}
 
@@ -1134,6 +1152,11 @@ func (in *Interp) callSahou(f *SahouFn, pos []Value, named map[string]Value, nam
 		if v, ok := named[p]; ok {
 			callEnv.Set(p, v)
 			delete(named, p)
+			continue
+		}
+		// 有默认值的参数：缺位时用定义处求好的默认值（v0.3）
+		if i < len(f.Defaults) && f.Defaults[i] != nil {
+			callEnv.Set(p, f.Defaults[i])
 			continue
 		}
 		sug := errs.DidYouMean(p, namedOrder)

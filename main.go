@@ -10,6 +10,7 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
+	_ "embed"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,6 +30,14 @@ import (
 	"sahou/internal/stonesrc"
 	"sahou/internal/transpile"
 )
+
+// version 语言版本号：发版打 vX.Y.Z 标签时与 CHANGELOG.md 同步更新。
+const version = "v0.3.0"
+
+// sharedLangJSON 编辑器共享元数据（LSP 悬停说明的数据源）。
+//
+//go:embed editors/shared/language.json
+var sharedLangJSON string
 
 func main() {
 	args := os.Args[1:]
@@ -67,8 +76,8 @@ func main() {
 		}
 		formatFile(rest[0])
 	case "version", "版本":
-		fmt.Println("卅 v0.1 —— 全栈 + 应用 + 工程化（数据库/会话/写页面/原生窗口/打包/测试/LSP 补全）")
-		fmt.Println("23 个关键字 · 30 个内置函数 · 11 个标准库模块 · 10 个自带 stones 包")
+		fmt.Println("卅 " + version + " —— 解释器 + 转译 + wasm + 发版自动化（stones 十八包/响应式/管道/全栈/应用/LSP）")
+		fmt.Printf("23 个关键字 · 30 个内置函数 · 11 个标准库模块 · %d 个自带 stones 包\n", len(stonesrc.Names()))
 	case "装", "install":
 		stonesInstall(rest)
 	case "stones", "库":
@@ -76,6 +85,7 @@ func main() {
 	case "serve":
 		serveDir(rest)
 	case "lsp":
+		lsp.SharedJSON = sharedLangJSON
 		lsp.Run()
 	case "help", "-h", "--help":
 		usage()
@@ -359,6 +369,11 @@ func exportRuntime(args []string) {
 	dir := "."
 	if len(args) > 0 {
 		dir = args[0]
+	}
+	dir = filepath.Clean(dir)
+	if strings.HasPrefix(dir, "..") {
+		fmt.Println("目录不能在当前目录之外。")
+		os.Exit(2)
 	}
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		fmt.Printf("目录 %s 不存在。\n", dir)
@@ -912,6 +927,10 @@ func serveDir(args []string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(r.URL.Path, "/")
+		if strings.Contains(name, "..") { // 防目录穿越（纵深防御）
+			http.NotFound(w, r)
+			return
+		}
 		// 内嵌运行时兜底：磁盘上没有 sahou.wasm / 卅.wasm / wasm_exec.js 就给内嵌副本
 		wasmName := name
 		if name == "卅.wasm" {

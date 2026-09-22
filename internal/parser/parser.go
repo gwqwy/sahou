@@ -57,8 +57,10 @@ type ForStmt struct {
 type FnStmt struct {
 	Name   string
 	Params []string
-	Body   []Stmt
-	Line   int
+	// Defaults 与 Params 平行：nil 表示该参数没有默认值（v0.3 起支持，值限不可变字面量）。
+	Defaults []Expr
+	Body     []Stmt
+	Line     int
 }
 
 type ReturnStmt struct {
@@ -190,9 +192,10 @@ type Pipe struct {
 }
 
 type AnonFn struct { // 函数(参数) => 表达式
-	Params []string
-	Body   Expr
-	Line   int
+	Params   []string
+	Defaults []Expr // 与 Params 平行，nil = 无默认值
+	Body     Expr
+	Line     int
 }
 
 func (e *NumLit) Pos() int  { return e.Line }
@@ -662,7 +665,7 @@ func (p *Parser) fnStmt() (Stmt, *errs.Error) {
 	line := p.cur().Line
 	p.next() // fn / 函数
 	name := p.next()
-	params, e := p.paramList()
+	params, defaults, e := p.paramList()
 	if e != nil {
 		return nil, e
 	}
@@ -675,34 +678,61 @@ func (p *Parser) fnStmt() (Stmt, *errs.Error) {
 			return nil, e
 		}
 	}
-	return &FnStmt{Name: name.Text, Params: params, Body: body, Line: line}, nil
+	return &FnStmt{Name: name.Text, Params: params, Defaults: defaults, Body: body, Line: line}, nil
 }
 
-func (p *Parser) paramList() ([]string, *errs.Error) {
+// paramList 参数表：名字 或 名字: 默认值（v0.3 起）。
+// 默认值只能是不可变字面量（数/文本/布尔/空值，或其负数）——列表/字典默认值有共享陷阱，禁止。
+// 有默认值的参数必须排在参数表最后。
+func (p *Parser) paramList() ([]string, []Expr, *errs.Error) {
 	if !p.at(lexer.LPAREN) {
-		return nil, p.unexpected("(")
+		return nil, nil, p.unexpected("(")
 	}
 	p.next()
 	var params []string
+	var defaults []Expr
 	seen := map[string]bool{}
+	sawDefault := false
 	for !p.at(lexer.RPAREN) {
 		if !p.at(lexer.IDENT) {
-			return nil, errs.SyntaxHint(
+			return nil, nil, errs.SyntaxHint(
 				"参数表里要写参数名。", "expected a parameter name in the parameter list.",
-				"参数只能是名字，例如：函数 加(a, b)。没有默认值（D5）。", p.cur().Line)
+				"参数是名字，可给后面的参数写默认值：函数 问候(名字, 标点: \"！\")。", p.cur().Line)
 		}
 		tok := p.next()
 		if seen[tok.Text] {
-			return nil, errs.SyntaxHint(
+			return nil, nil, errs.SyntaxHint(
 				"参数 "+tok.Text+" 重复了。", "duplicate parameter "+tok.Text+".",
 				"每个参数名字要不一样。", tok.Line)
 		}
 		seen[tok.Text] = true
 		params = append(params, tok.Text)
+		var dflt Expr
+		if p.at(lexer.COLON) {
+			p.next()
+			d, e := p.expr()
+			if e != nil {
+				return nil, nil, e
+			}
+			if !isSimpleDefault(d) {
+				return nil, nil, errs.SyntaxHint(
+					"参数 "+tok.Text+" 的默认值只能是数、文本、布尔或空值字面量。",
+					"default values must be number, text, bool, or null literals.",
+					"列表/字典做默认值会在多次调用间共享，语言里禁止这个坑。", tok.Line)
+			}
+			dflt = d
+			sawDefault = true
+		} else if sawDefault {
+			return nil, nil, errs.SyntaxHint(
+				"参数 "+tok.Text+" 没有默认值，但前面的参数已经有了。",
+				"parameter "+tok.Text+" needs a default value.",
+				"有默认值的参数要放在参数表最后。", tok.Line)
+		}
+		defaults = append(defaults, dflt)
 		if p.at(lexer.COMMA) {
 			p.next()
 			if p.at(lexer.RPAREN) {
-				return nil, errs.SyntaxHint(
+				return nil, nil, errs.SyntaxHint(
 					"逗号后面没有参数。", "stray comma in the parameter list.",
 					"删掉最后一个逗号。", p.cur().Line)
 			}
@@ -711,10 +741,22 @@ func (p *Parser) paramList() ([]string, *errs.Error) {
 		break
 	}
 	if !p.at(lexer.RPAREN) {
-		return nil, p.unexpected(")")
+		return nil, nil, p.unexpected(")")
 	}
 	p.next()
-	return params, nil
+	return params, defaults, nil
+}
+
+// isSimpleDefault 默认值字面量检查：数/文本/布尔/空值，以及负数（一元减号包数）。
+func isSimpleDefault(e Expr) bool {
+	switch x := e.(type) {
+	case *NumLit, *StrLit, *BoolLit, *NullLit:
+		return true
+	case *Un:
+		_, ok := x.X.(*NumLit)
+		return ok
+	}
+	return false
 }
 
 func (p *Parser) returnStmt() (Stmt, *errs.Error) {
@@ -855,7 +897,7 @@ func (p *Parser) expr() (Expr, *errs.Error) {
 	if p.at(lexer.FN) && p.peek().Kind == lexer.LPAREN {
 		line := p.cur().Line
 		p.next()
-		params, e := p.paramList()
+		params, defaults, e := p.paramList()
 		if e != nil {
 			return nil, e
 		}
@@ -869,7 +911,7 @@ func (p *Parser) expr() (Expr, *errs.Error) {
 		if e != nil {
 			return nil, e
 		}
-		base := Expr(&AnonFn{Params: params, Body: body, Line: line})
+		base := Expr(&AnonFn{Params: params, Defaults: defaults, Body: body, Line: line})
 		return p.pipeTail(base)
 	}
 	left, e := p.orExpr()

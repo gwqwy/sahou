@@ -2,7 +2,7 @@
   "name": "sahou-language",
   "displayName": "sahou（卅）语言支持",
   "description": "卅（sahou）编程语言：语法高亮、文件图标、上下文补全、悬停文档、实时诊断、一键运行/转译/REPL",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "publisher": "sahou",
   "license": "MIT",
   "icon": "./icons/sahou-128.png",

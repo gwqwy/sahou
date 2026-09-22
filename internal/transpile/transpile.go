@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"sahou/internal/errs"
@@ -82,11 +83,13 @@ var binopJS = map[string]string{
 }
 
 type Builder struct {
-	out   strings.Builder
-	ind   int
-	mods  map[string]*modUnit
-	itVar string            // 管道步骤生成时，它 绑定到的 JS 参数名
-	decl  []map[string]bool // 已声明名字的作用域栈：栈内名字遮蔽同名内置函数（与解释器赋值遮蔽语义一致）
+	out       strings.Builder
+	ind       int
+	mods      map[string]*modUnit
+	itVar     string            // 管道步骤生成时，它 绑定到的 JS 参数名
+	decl      []map[string]bool // 已声明名字的作用域栈：栈内名字遮蔽同名内置函数（与解释器赋值遮蔽语义一致）
+	cellNames map[string]bool   // 格子名：读取走 __saho_cell_read，顶层赋值后触发 __saho_changed
+	fnDepth   int               // >0 表示正在生成函数体（函数内赋值不触发响应式通知，与解释器一致）
 }
 
 // pushDecl 进入一个作用域（单元顶层/函数体），其中的名字优先按变量解析。
@@ -139,7 +142,12 @@ func Build(prog *parser.Program, baseDir string) (string, *errs.Error) {
 	if e != nil {
 		return "", e
 	}
-	b := &Builder{mods: mods}
+	cellNames := map[string]bool{}
+	collectCells(prog.Stmts, cellNames)
+	for _, u := range mods {
+		collectCells(u.prog.Stmts, cellNames)
+	}
+	b := &Builder{mods: mods, cellNames: cellNames}
 	b.out.WriteString("// 由 sahou build 生成 —— 请勿手改\n")
 	b.out.WriteString(runtimeJS)
 	b.ind = 0
@@ -171,6 +179,10 @@ func Build(prog *parser.Program, baseDir string) (string, *errs.Error) {
 	for _, n := range names {
 		b.linef("let %s;", rename(n))
 	}
+	// 顶层变量登记到运行时：页面.绑输入/绑定 通过它读写与订阅（v4 响应式）
+	for _, n := range names {
+		b.linef("__saho_regvar(%q, function () { return %s; }, function (v) { %s = v; });", n, rename(n), rename(n))
+	}
 	for _, s := range prog.Stmts {
 		if e := b.stmt(s); e != nil {
 			return "", e
@@ -179,6 +191,82 @@ func Build(prog *parser.Program, baseDir string) (string, *errs.Error) {
 	b.popDecl()
 	b.out.WriteString("})();\n")
 	return b.out.String(), nil
+}
+
+// collectCells 收集所有 格子 定义名（含嵌套块与函数体——函数里定义格子会在生成时报错）。
+func collectCells(stmts []parser.Stmt, set map[string]bool) {
+	for _, s := range stmts {
+		switch st := s.(type) {
+		case *parser.CellStmt:
+			set[st.Name] = true
+		case *parser.IfStmt:
+			for _, blk := range st.Blocks {
+				collectCells(blk, set)
+			}
+			collectCells(st.Else, set)
+		case *parser.WhileStmt:
+			collectCells(st.Body, set)
+		case *parser.ForStmt:
+			collectCells(st.Body, set)
+		case *parser.TryStmt:
+			collectCells(st.Body, set)
+			collectCells(st.Catch, set)
+		case *parser.FnStmt:
+			collectCells(st.Body, set)
+		}
+	}
+}
+
+// collectFreeIdents 收集表达式引用的名字（格子静态依赖）；内置函数名除外；
+// 匿名函数子树跳过（参数会遮蔽外层名字）。
+func collectFreeIdents(e parser.Expr, set map[string]bool) {
+	switch x := e.(type) {
+	case *parser.Ident:
+		if !isBuiltinJSName(x.Name) {
+			set[x.Name] = true
+		}
+	case *parser.Bin:
+		collectFreeIdents(x.L, set)
+		collectFreeIdents(x.R, set)
+	case *parser.Un:
+		collectFreeIdents(x.X, set)
+	case *parser.Not:
+		collectFreeIdents(x.X, set)
+	case *parser.Index:
+		collectFreeIdents(x.X, set)
+		collectFreeIdents(x.Idx, set)
+	case *parser.Member:
+		collectFreeIdents(x.X, set)
+	case *parser.Call:
+		collectFreeIdents(x.Fn, set)
+		for _, a := range x.Args {
+			collectFreeIdents(a.Value, set)
+		}
+	case *parser.ListLit:
+		for _, el := range x.Elems {
+			collectFreeIdents(el, set)
+		}
+	case *parser.DictLit:
+		for _, it := range x.Items {
+			collectFreeIdents(it.Key, set)
+			collectFreeIdents(it.Val, set)
+		}
+	case *parser.StrLit:
+		for _, p := range x.Parts {
+			if p.Expr != nil {
+				collectFreeIdents(p.Expr, set)
+			}
+		}
+	case *parser.Pipe:
+		for _, s := range x.Steps {
+			collectFreeIdents(s, set)
+		}
+	}
+}
+
+func isBuiltinJSName(n string) bool {
+	_, ok := builtinJS[n]
+	return ok
 }
 
 // collectModules 沿引入语句递归收集本地用户模块（转译期循环检测，08 文档 M6）。
@@ -404,7 +492,17 @@ func (b *Builder) stmt(s parser.Stmt) *errs.Error {
 					t.Name+" 是内置函数的名字，不能改作他用。", t.Name+" is a builtin name and cannot be reassigned.",
 					"请换一个变量名。", st.Line)
 			}
+			if b.cellNames[t.Name] {
+				return errs.SyntaxHint(
+					t.Name+" 是格子，由表达式自动计算，不能直接赋值。",
+					t.Name+" is a cell computed automatically; you cannot assign to it.",
+					"改它依赖的变量，格子的值会自动更新。", st.Line)
+			}
 			b.linef("%s = %s;", rename(t.Name), val)
+			// 顶层赋值触发响应式重算/观察者（函数内赋值是局部的，与解释器一致）
+			if b.fnDepth == 0 {
+				b.linef("__saho_changed(%q, %s);", t.Name, rename(t.Name))
+			}
 		case *parser.Index:
 			xx, e2 := b.expr(t.X)
 			if e2 != nil {
@@ -488,15 +586,34 @@ func (b *Builder) stmt(s parser.Stmt) *errs.Error {
 		}
 		b.ind--
 		b.linef("}")
+	case *parser.CellStmt:
+		if b.fnDepth > 0 {
+			return errs.SyntaxHint(
+				"格子要写在程序顶层，函数里面不能定义格子。", "cells can only be defined at the top level.",
+				"把格子移到程序最外层；函数里可以直接读它的值。", st.Line)
+		}
+		val, err := b.expr(st.Expr)
+		if err != nil {
+			return err
+		}
+		depSet := map[string]bool{}
+		collectFreeIdents(st.Expr, depSet)
+		delete(depSet, st.Name)
+		deps := make([]string, 0, len(depSet))
+		for d := range depSet {
+			deps = append(deps, goQuote(d))
+		}
+		sort.Strings(deps)
+		b.linef("__saho_cell(%q, function () { return %s; }, [%s]);", st.Name, val, strings.Join(deps, ", "))
 	case *parser.FnStmt:
 		if _, isBuiltin := builtinJS[st.Name]; isBuiltin {
 			return errs.SyntaxHint(
 				st.Name+" 是内置函数，不能重新定义。", st.Name+" is a builtin function and cannot be redefined.",
 				"请换一个名字，比如 "+st.Name+"2。", st.Line)
 		}
-		params := make([]string, len(st.Params))
-		for i, p := range st.Params {
-			params[i] = rename(p)
+		paramJS, defaultJS, err := b.paramListJS(st.Params, st.Defaults)
+		if err != nil {
+			return err
 		}
 		names, e := collectAssigned(st.Body)
 		if e != nil {
@@ -506,9 +623,10 @@ func (b *Builder) stmt(s parser.Stmt) *errs.Error {
 		for _, pn := range st.Params {
 			paramSet[pn] = true
 		}
-		b.linef("%s = __saho_defn(function %s(%s) {", rename(st.Name), rename(st.Name), strings.Join(params, ", "))
+		b.linef("%s = __saho_defn(function %s(%s) {", rename(st.Name), rename(st.Name), strings.Join(paramJS, ", "))
 		b.ind++
 		b.pushDecl(append(append([]string{}, st.Params...), names...))
+		b.fnDepth++
 		for _, n := range names {
 			if n == st.Name || paramSet[n] {
 				continue // 自身名字由外层 let 承载；参数名是函数级绑定，不能再 let
@@ -520,10 +638,11 @@ func (b *Builder) stmt(s parser.Stmt) *errs.Error {
 				return e
 			}
 		}
+		b.fnDepth--
 		b.popDecl()
 		b.linef("return null;")
 		b.ind--
-		b.linef("}, [%s], %q);", joinRenamed(st.Params), st.Name)
+		b.linef("}, [%s], %q%s);", joinRenamed(st.Params), st.Name, defaultArrayArg(defaultJS))
 	case *parser.ReturnStmt:
 		if st.Value == nil {
 			b.linef("return;")
@@ -572,6 +691,39 @@ func __saho_numLit(r *big.Rat) string {
 	}
 	f := new(big.Float).SetPrec(200).SetRat(r)
 	return f.Text('g', 15)
+}
+
+// paramListJS 生成 JS 参数表（带 `= 默认值`）与平行的默认值数组（无默认的槽位是 undefined）。
+func (b *Builder) paramListJS(params []string, defaults []parser.Expr) ([]string, []string, *errs.Error) {
+	paramJS := make([]string, len(params))
+	defaultJS := make([]string, len(params))
+	any := false
+	for i, p := range params {
+		paramJS[i] = rename(p)
+		if i < len(defaults) && defaults[i] != nil {
+			d, e := b.expr(defaults[i])
+			if e != nil {
+				return nil, nil, e
+			}
+			paramJS[i] += " = " + d
+			defaultJS[i] = d
+			any = true
+		} else {
+			defaultJS[i] = "undefined"
+		}
+	}
+	if !any {
+		defaultJS = nil
+	}
+	return paramJS, defaultJS, nil
+}
+
+// defaultArrayArg __saho_defn 的第 4 个实参（默认值数组）；没有默认值时为空串（省略）。
+func defaultArrayArg(defaultJS []string) string {
+	if len(defaultJS) == 0 {
+		return ""
+	}
+	return ", [" + strings.Join(defaultJS, ", ") + "]"
 }
 
 func joinRenamed(ps []string) string {
@@ -658,9 +810,9 @@ func (b *Builder) expr(x parser.Expr) (string, *errs.Error) {
 		}
 		return "__saho_get(" + xx + ", " + goQuote(e.Name) + ")", nil
 	case *parser.AnonFn:
-		params := make([]string, len(e.Params))
-		for i, p := range e.Params {
-			params[i] = rename(p)
+		paramJS, defaultJS, err := b.paramListJS(e.Params, e.Defaults)
+		if err != nil {
+			return "", err
 		}
 		b.pushDecl(e.Params)
 		body, err := b.expr(e.Body)
@@ -668,7 +820,7 @@ func (b *Builder) expr(x parser.Expr) (string, *errs.Error) {
 		if err != nil {
 			return "", err
 		}
-		return "__saho_defn(function(" + strings.Join(params, ", ") + ") { return " + body + "; }, [" + joinRenamed(e.Params) + "], \"\")", nil
+		return "__saho_defn(function(" + strings.Join(paramJS, ", ") + ") { return " + body + "; }, [" + joinRenamed(e.Params) + "], \"\"" + defaultArrayArg(defaultJS) + ")", nil
 	case *parser.Call:
 		return b.call(e)
 	case *parser.Pipe:
@@ -729,9 +881,12 @@ func (b *Builder) strLit(e *parser.StrLit) (string, *errs.Error) {
 	return sb.String(), nil
 }
 
-// ident 变量读取：本作用域声明过的名字→变量（可遮蔽内置函数）；内置函数名→辅助函数；
-// 模块名→模块对象/报错；其余原名。
+// ident 变量读取：格子→响应式读取；本作用域声明过的名字→变量（可遮蔽内置函数）；
+// 内置函数名→辅助函数；模块名→模块对象/报错；其余原名。
 func (b *Builder) ident(e *parser.Ident) string {
+	if b.cellNames[e.Name] {
+		return "__saho_cell_read(" + goQuote(e.Name) + ")"
+	}
 	if b.declared(e.Name) {
 		return rename(e.Name)
 	}

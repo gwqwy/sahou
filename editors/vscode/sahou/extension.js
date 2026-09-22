@@ -20,7 +20,7 @@ let lspProcess = null;
 let lspBuffer = null;
 let diagnosticCollection = null;
 let lspRequestSeq = 10;
-const pendingCompletions = new Map(); // id -> { resolve, timer }
+const pendingRequests = new Map(); // id -> { resolve, timer }（补全与悬停共用）
 
 function sahouPath() {
   return vscode.workspace.getConfiguration("sahou").get("path", "sahou");
@@ -273,17 +273,17 @@ function handleLspMessage(raw) {
     diagnosticCollection.set(uri, diags);
     return;
   }
-  // 补全响应：按 id 交给等待中的 provider
-  if (msg.id !== undefined && pendingCompletions.has(Number(msg.id))) {
-    const pending = pendingCompletions.get(Number(msg.id));
+  // 补全/悬停响应：按 id 交给等待中的 provider
+  if (msg.id !== undefined && pendingRequests.has(Number(msg.id))) {
+    const pending = pendingRequests.get(Number(msg.id));
     clearTimeout(pending.timer);
-    pendingCompletions.delete(Number(msg.id));
-    pending.resolve(msg.result && Array.isArray(msg.result.items) ? msg.result.items : []);
+    pendingRequests.delete(Number(msg.id));
+    pending.resolve(msg.result);
   }
 }
 
-// 向服务端要上下文补全；500ms 内没回话（或服务没起来）就退回静态数据。
-function serverCompletion(doc, pos) {
+// 向服务端发一次带超时的请求（补全/悬停共用）；失败或超时返回 null。
+function serverRequest(method, params) {
   return new Promise((resolve) => {
     if (!lspProcess) {
       resolve(null);
@@ -291,15 +291,20 @@ function serverCompletion(doc, pos) {
     }
     const id = lspRequestSeq++;
     const timer = setTimeout(() => {
-      pendingCompletions.delete(id);
+      pendingRequests.delete(id);
       resolve(null);
     }, 500);
-    pendingCompletions.set(id, { resolve, timer });
-    sendRequest(id, "textDocument/completion", {
-      textDocument: { uri: doc.uri.toString() },
-      position: { line: pos.line, character: pos.character },
-    });
+    pendingRequests.set(id, { resolve, timer });
+    sendRequest(id, method, params);
   });
+}
+
+// 向服务端要上下文补全；500ms 内没回话（或服务没起来）就退回静态数据。
+function serverCompletion(doc, pos) {
+  return serverRequest("textDocument/completion", {
+    textDocument: { uri: doc.uri.toString() },
+    position: { line: pos.line, character: pos.character },
+  }).then((result) => (result && Array.isArray(result.items) ? result.items : null));
 }
 
 const LSP_KIND_MAP = {
@@ -420,9 +425,18 @@ function registerLanguageFeatures(context) {
   );
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(selector, {
-      provideHover(doc, pos) {
+      async provideHover(doc, pos) {
         const word = wordAt(doc, pos);
-        return word ? hoverInfo(word) : null;
+        if (!word) return null;
+        // 服务端悬停优先（stones 成员动态、口径随语言版本），静态数据兜底
+        const res = await serverRequest("textDocument/hover", {
+          textDocument: { uri: doc.uri.toString() },
+          position: { line: pos.line, character: pos.character },
+        });
+        if (res && res.contents && res.contents.value) {
+          return new vscode.Hover(new vscode.MarkdownString(res.contents.value));
+        }
+        return hoverInfo(word);
       }
     })
   );
@@ -438,11 +452,11 @@ function stopLsp() {
     }
     lspProcess = null;
   }
-  for (const [, pending] of pendingCompletions) {
+  for (const [, pending] of pendingRequests) {
     clearTimeout(pending.timer);
     pending.resolve(null);
   }
-  pendingCompletions.clear();
+  pendingRequests.clear();
 }
 
 function deactivate() {

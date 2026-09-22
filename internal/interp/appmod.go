@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -185,8 +186,16 @@ func lanIPs() []string {
 	return out
 }
 
+// safeBrowserURL 只放行解释器自己拼装的本地地址（127.0.0.1 / localhost / 局域网 IPv4 + 可选端口）。
+var safeBrowserURL = regexp.MustCompile(
+	`^http://(?:127\.0\.0\.1|localhost|(?:\d{1,3}\.){3}\d{1,3})(?::\d{1,5})?/$`)
+
 // openBrowser 用系统默认浏览器打开网址（跨平台）。
+// URL 必须通过上面的白名单（解释器内部拼装），外部输入一律不自动打开。
 func openBrowser(url string) {
+	if !safeBrowserURL.MatchString(url) {
+		return
+	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
