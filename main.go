@@ -32,7 +32,7 @@ import (
 )
 
 // version 语言版本号：发版打 vX.Y.Z 标签时与 CHANGELOG.md 同步更新。
-const version = "v0.3.0"
+const version = "v1.0.0"
 
 // sharedLangJSON 编辑器共享元数据（LSP 悬停说明的数据源）。
 //
