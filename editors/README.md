@@ -9,7 +9,7 @@
 
 | 路径 | 内容 |
 |---|---|
-| `shared/language.json` | **编辑器元数据唯一事实来源**：语言基本信息、23 关键字、30 内置函数（带签名/说明/可用端）、11 模块、14 stones 包（带成员清单）。与 docs/00 简报、02 规范同源 |
+| `shared/language.json` | **编辑器元数据唯一事实来源**：语言基本信息、23 关键字、30 内置函数（带签名/说明/可用端）、11 模块、20 stones 包（带成员清单）。与 docs/00 简报、02 规范同源 |
 | `sync-shared.js` | 把共享数据同步到各编辑器目录（`node editors/sync-shared.js`，零依赖）。改了 shared 以后必须跑一次并提交 |
 | `vscode/sahou/` | VS Code 扩展（v0.2.0）：语法高亮、文件图标、补全、悬停、实时诊断、一键运行/转译/REPL。见 [VS_CODE接入指南.md](./VS_CODE接入指南.md) |
 | `tools/genicon.py` | 市场图标生成器：把 `vscode/sahou/icons/saho.svg` 的流水线设计栅格化成 PNG（纯标准库）。改了图标后运行 `python editors/tools/genicon.py` |
@@ -31,7 +31,7 @@
    - `keywords`：关键字双语表（zh/en/kind/brief）
    - `builtins`：30 个内置函数（zh/en/signature/brief/side——`side` 标注服务端专属）
    - `modules`：标准库模块与常见成员
-   - `stones`：14 个内嵌 stones 包与全部顶层成员
+   - `stones`：20 个内嵌 stones 包与全部顶层成员
 2. **接 LSP**：启动 `sahou lsp`（stdio、Content-Length 帧），它提供：
    - 全文诊断（`textDocument/publishDiagnostics`）
    - 上下文补全（`textDocument/completion`）：`用 "…` 给包名、`名字.` 给成员、其余给关键字+内置函数

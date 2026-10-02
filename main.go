@@ -76,7 +76,7 @@ func main() {
 		}
 		formatFile(rest[0])
 	case "version", "版本":
-		fmt.Println("卅 " + version + " —— 解释器 + 转译 + wasm + 发版自动化（stones 十八包/响应式/管道/全栈/应用/LSP）")
+		fmt.Println("卅 " + version + " —— 解释器 + 转译 + wasm + 发版自动化（stones 标准库/响应式/管道/全栈/应用/LSP）")
 		fmt.Printf("23 个关键字 · 30 个内置函数 · 11 个标准库模块 · %d 个自带 stones 包\n", len(stonesrc.Names()))
 	case "装", "install":
 		stonesInstall(rest)

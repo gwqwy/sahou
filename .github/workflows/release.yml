@@ -1,11 +1,12 @@
-# 卅语言 · 自动发版：构建完成后上传 GitHub Releases。
+# 卅语言 · 自动发版：三平台构建完成后上传 GitHub Releases。
 # 两种触发方式：
-#   1) 推送 v* 标签（git tag v0.2.2 && git push origin v0.2.2）→ 自动构建并发布该版本；
+#   1) 推送 v* 标签（git tag v1.1.0 && git push sahou v1.1.0）→ 自动构建并发布该版本；
 #   2) Actions 页手动运行（workflow_dispatch），填版本号 → 工作流自动创建标签再发布。
-# 发布物：sahou.exe —— 单文件自带全部 stones 标准库包与 wasm 浏览器运行时；
-#         以及与标签版本匹配的 VS Code 扩展 vsix（存在时一并发布）。
-# Release 说明取自根目录 CHANGELOG.md 里与标签同名的小节（## v0.2.1 这样的二级标题）；
-# 找不到对应小节时退回 GitHub 自动生成的提交列表。
+# 发布物：sahou.exe（Windows）/ sahou-linux / sahou-macos——
+#         单文件自带全部 stones 标准库包与 wasm 浏览器运行时；
+#         以及与标签版本匹配的 VS Code 扩展 vsix（存在时一并发布，随 Windows 构建所在发布物一起）。
+# Release 说明取自根目录 CHANGELOG.md 里与标签同名的小节（## v1.1.0 这样的二级标题）；
+# 找不到对应小节时**发布直接失败**——宁可发不出来，也不发一条没有说明的裸 Release。
 # 全量测试由 ci.yml 在 main 上把关；本工作流做发布前冒烟验证。
 name: Release
 
@@ -15,40 +16,36 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "版本号（如 v0.2.1）"
+        description: "版本号（如 v1.1.0）"
         required: true
-        default: "v0.2.1"
+        default: "v1.1.0"
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    name: 构建 + 上传 Releases
-    runs-on: windows-latest
-    timeout-minutes: 30
+  # 标签作业：手动触发时创建并推送标签；推标签触发时天然已存在，空跑几秒。
+  # 单独一个作业保证只建一次，下游矩阵作业都以这个标签为准构建。
+  tag:
+    name: 确保标签存在
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.23.x"
-
-      - name: 计算版本号与标签
+      - name: 计算版本号，缺标签则创建并推送
         id: ver
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            TAG="${{ inputs.version }}"
           else
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            TAG="${GITHUB_REF_NAME}"
           fi
-
-      - name: 手动触发时创建并推送标签
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          TAG="${{ steps.ver.outputs.tag }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
             echo "标签 $TAG 已存在，跳过创建"
           else
@@ -56,12 +53,30 @@ jobs:
             git push origin "$TAG"
           fi
 
-      # 手动触发时以标签对应提交为准构建（发布物与标签严格对应）
-      - name: 切到标签对应提交
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v4
+  build:
+    name: 构建 + 冒烟
+    needs: tag
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bin: sahou.exe
+          - os: ubuntu-latest
+            bin: sahou-linux
+          - os: macos-latest
+            bin: sahou-macos
+    steps:
+      # 以标签对应提交为准构建（发布物与标签严格对应）
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.ver.outputs.tag }}
+          ref: ${{ needs.tag.outputs.tag }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
 
       - name: 生成 wasm 运行时（stonesfs.go 内嵌需要）
         env:
@@ -69,47 +84,70 @@ jobs:
           GOARCH: wasm
         run: go build -o sahou.wasm ./cmd/sahouwasm
 
-      - name: 构建 sahou.exe
-        run: go build -trimpath -ldflags "-s -w" -o sahou.exe .
+      - name: 构建 ${{ matrix.bin }}
+        run: go build -trimpath -ldflags "-s -w" -o ${{ matrix.bin }} .
 
       - name: 发布前冒烟验证
         shell: bash
         run: |
-          ./sahou.exe run examples/入门演示.saho > /dev/null
-          ./sahou.exe stones | grep -q 时长库
-          ./sahou.exe stones | grep -q 罗马数字
-          echo "冒烟通过：exe 可运行且自带十八包"
+          ./${{ matrix.bin }} run examples/入门演示.saho > /dev/null
+          ./${{ matrix.bin }} stones | grep -q 时长库
+          ./${{ matrix.bin }} stones | grep -q 表格库
+          echo "冒烟通过：${{ matrix.bin }} 可运行且 stones 标准库齐全"
 
-      - name: 整理发布物
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.bin }}
+          path: ${{ matrix.bin }}
+
+  # 发布作业：三平台产物到齐后，统一发一个 Release（Windows 的 gh 之外这里用 Linux 跑）。
+  publish:
+    name: 整理发布物 + 上传 Releases
+    needs: [tag, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
+
+      - name: 下载三平台构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: 整理发布物（附上匹配版本的 VS Code 扩展）
         shell: bash
+        env:
+          TAG: ${{ needs.tag.outputs.tag }}
         run: |
-          TAG="${{ steps.ver.outputs.tag }}"
-          mkdir -p release
-          cp sahou.exe release/
-          # 与标签版本匹配的扩展（v0.2.1 → sahou-language-0.2.1.vsix）
+          chmod +x release/sahou-linux release/sahou-macos 2>/dev/null || true
+          # 与标签版本匹配的扩展（v1.1.0 → sahou-language-1.1.0.vsix）
           if [ -f "editors/vscode/sahou-language-${TAG#v}.vsix" ]; then
             cp "editors/vscode/sahou-language-${TAG#v}.vsix" release/
           else
             echo "提示：没有找到 editors/vscode/sahou-language-${TAG#v}.vsix，本次不发扩展附件"
           fi
+          ls -l release
 
       - name: 上传到 GitHub Releases
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.ver.outputs.tag }}
+          TAG: ${{ needs.tag.outputs.tag }}
         run: |
           # 说明：取根目录 CHANGELOG.md 里以 "## <标签>" 开头的小节（到下一个 ## 为止，
-          # 即只截取当前版本的更新说明）；没有对应小节就用 GitHub 自动生成的提交列表
+          # 即只截取当前版本的更新说明）。找不到就直接失败：发版前必须把说明补进 CHANGELOG。
           awk -v tag="$TAG" '
             $0 ~ "^## " tag { flag = 1; next }
             /^## / { flag = 0 }
             flag { print }
           ' CHANGELOG.md > release_notes.md || true
-          if [ -s release_notes.md ]; then
-            ARGS=(--notes-file release_notes.md)
-          else
-            ARGS=(--generate-notes)
+          if [ ! -s release_notes.md ]; then
+            echo "::error::CHANGELOG.md 里没有「## $TAG」小节。请把这一版的更新说明补进 CHANGELOG.md 再发版——该小节会原样成为 Release 页正文。"
+            exit 1
           fi
           # 先清掉同名旧 Release（删标签会把已发布 Release 变成草稿残留），再全新创建
           gh release delete "$TAG" --yes --cleanup-tag=false 2>/dev/null || true
@@ -119,5 +157,5 @@ jobs:
                   *"$TAG"*) gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id" >/dev/null 2>&1 || true ;;
                 esac
               done
-          gh release create "$TAG" release/* --title "卅 $TAG" "${ARGS[@]}"
+          gh release create "$TAG" release/* --title "卅 $TAG" --notes-file release_notes.md
           echo "已发布 $TAG：$(ls release | tr '\n' ' ')"

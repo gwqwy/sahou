@@ -139,6 +139,11 @@ def render(size):
 
 
 def write_png(path, size, rows):
+    # 输出位置只允许在扩展的 icons/ 目录里（本工具只服务这个固定用途，越界直接拒绝）
+    icons = os.path.realpath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "vscode", "sahou", "icons"))
+    if os.path.commonpath([os.path.realpath(os.path.abspath(path)), icons]) != icons:
+        raise ValueError(f"图标输出路径越界（只允许写到 {icons}）：{path}")
     raw = b"".join(b"\x00" + row for row in rows)  # 每行前置 filter 0
     chunk = struct.pack(">I", size) + struct.pack(">I", size) + bytes([8, 6, 0, 0, 0])
 

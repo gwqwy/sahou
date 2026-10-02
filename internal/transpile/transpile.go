@@ -90,6 +90,7 @@ type Builder struct {
 	decl      []map[string]bool // 已声明名字的作用域栈：栈内名字遮蔽同名内置函数（与解释器赋值遮蔽语义一致）
 	cellNames map[string]bool   // 格子名：读取走 __saho_cell_read，顶层赋值后触发 __saho_changed
 	fnDepth   int               // >0 表示正在生成函数体（函数内赋值不触发响应式通知，与解释器一致）
+	loopDepth int               // >0 表示正在生成循环体（跳出/继续 只能出现在循环里）
 }
 
 // pushDecl 进入一个作用域（单元顶层/函数体），其中的名字优先按变量解析。
@@ -565,11 +566,13 @@ func (b *Builder) stmt(s parser.Stmt) *errs.Error {
 		}
 		b.linef("while (__saho_truthy(%s)) {", c)
 		b.ind++
+		b.loopDepth++
 		for _, sub := range st.Body {
 			if e := b.stmt(sub); e != nil {
 				return e
 			}
 		}
+		b.loopDepth--
 		b.ind--
 		b.linef("}")
 	case *parser.ForStmt:
@@ -579,11 +582,13 @@ func (b *Builder) stmt(s parser.Stmt) *errs.Error {
 		}
 		b.linef("for (%s of __saho_iter(%s)) {", rename(st.Var), iter)
 		b.ind++
+		b.loopDepth++
 		for _, sub := range st.Body {
 			if e := b.stmt(sub); e != nil {
 				return e
 			}
 		}
+		b.loopDepth--
 		b.ind--
 		b.linef("}")
 	case *parser.CellStmt:
@@ -680,6 +685,26 @@ func (b *Builder) stmt(s parser.Stmt) *errs.Error {
 		}
 		b.ind--
 		b.linef("}")
+	case *parser.BreakStmt:
+		if b.loopDepth == 0 {
+			return errs.SyntaxHint(
+				"跳出/继续 只能在 当 或 遍历 循环里使用。",
+				"break/continue can only be used inside a while or for loop.",
+				"检查这段代码是不是落在循环外面了。", st.Line)
+		}
+		b.linef("break;")
+	case *parser.ContinueStmt:
+		if b.loopDepth == 0 {
+			return errs.SyntaxHint(
+				"跳出/继续 只能在 当 或 遍历 循环里使用。",
+				"break/continue can only be used inside a while or for loop.",
+				"检查这段代码是不是落在循环外面了。", st.Line)
+		}
+		b.linef("continue;")
+	default:
+		return errs.Syntax(
+			"转译器还不认识这种语句（静默跳过会破坏四侧同口径，宁可报错）。",
+			"the transpiler does not support this statement kind.", s.Pos())
 	}
 	return nil
 }
