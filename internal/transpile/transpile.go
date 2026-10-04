@@ -515,11 +515,10 @@ func (b *Builder) stmt(s parser.Stmt) *errs.Error {
 			}
 			b.linef("__saho_set(%s, %s, %s);", xx, idx, val)
 		case *parser.Member:
-			xx, e2 := b.expr(t.X)
-			if e2 != nil {
-				return e2
-			}
-			b.linef("__saho_set(%s, %s, %s);", xx, goQuote(t.Name), val)
+			// D11：点读只读，赋值必须走方括号；正常会被解析器拦截，这里是防御
+			return errs.SyntaxHint(
+				"点号 . 只能读取成员，不能用来赋值。", "'.' can only read a member, not assign to one.",
+				"给字典字段赋值请用方括号：小猫[\"名字\"] = \"咪咪\"。", st.Line)
 		default:
 			return errs.Syntax("= 的左边只能是要赋值的目标。", "invalid assignment target.", st.Line)
 		}
