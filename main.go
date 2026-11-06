@@ -32,7 +32,7 @@ import (
 )
 
 // version 语言版本号：发版打 vX.Y.Z 标签时与 CHANGELOG.md 同步更新。
-const version = "v1.0.0"
+const version = "v1.1.0"
 
 // sharedLangJSON 编辑器共享元数据（LSP 悬停说明的数据源）。
 //
@@ -371,11 +371,17 @@ func exportRuntime(args []string) {
 		dir = args[0]
 	}
 	dir = filepath.Clean(dir)
-	if strings.HasPrefix(dir, "..") {
+	// 目标必须在当前目录之内（含当前目录本身）；绝对路径与 .. 都逃不出去
+	absDir, aerr := filepath.Abs(dir)
+	if aerr != nil {
+		fmt.Printf("解析目录失败：%v\n", aerr)
+		os.Exit(2)
+	}
+	if wd, werr := os.Getwd(); werr != nil || !withinDir(wd, absDir) {
 		fmt.Println("目录不能在当前目录之外。")
 		os.Exit(2)
 	}
-	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+	if st, err := os.Stat(absDir); err != nil || !st.IsDir() {
 		fmt.Printf("目录 %s 不存在。\n", dir)
 		os.Exit(2)
 	}
@@ -385,7 +391,7 @@ func exportRuntime(args []string) {
 			fmt.Println("这个 exe 没有内嵌运行时。")
 			os.Exit(2)
 		}
-		target := filepath.Join(dir, name)
+		target := filepath.Join(absDir, name)
 		if werr := os.WriteFile(target, data, 0o644); werr != nil {
 			fmt.Printf("写不了 %s：%v\n", target, werr)
 			os.Exit(2)
@@ -393,6 +399,15 @@ func exportRuntime(args []string) {
 		fmt.Printf("已导出 %s（%d 字节）。\n", target, len(data))
 	}
 	fmt.Println("把这两个文件和你的 .html/.saho 一起传到 Web 服务器即可；本机使用不需要它们。")
+}
+
+// withinDir 报告 dir 是否等于 root 或位于 root 之内（词法比较，二者都须为绝对路径）。
+func withinDir(root, dir string) bool {
+	rel, err := filepath.Rel(root, dir)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 // stonesHasPackages 仓库 stones/ 目录里有没有至少一个包（单文件或目录包）。
@@ -915,6 +930,10 @@ func serveDir(args []string) {
 	dir := "."
 	if len(args) > 0 {
 		dir = args[0]
+	}
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		fmt.Printf("目录 %s 不存在。\n", dir)
+		os.Exit(2)
 	}
 	addr := "127.0.0.1:8000"
 	for _, a := range args {

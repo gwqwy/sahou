@@ -65,7 +65,7 @@ go build -o sahou.exe .          # 构建（需 Go 1.23+）
 | `internal/transpile/` | sahou → JavaScript 转译器 |
 | `internal/lsp/` `internal/format/` | 语言服务（诊断+补全）与格式化 |
 | `examples/` | 可直接运行的示例（入门、留言板、桌面/手机/原生窗口应用） |
-| `stones/` | 纯 sahou 写的 18 个标准库包（算术/文本/游戏/中文数字/…/时长库） |
+| `stones/` | 纯 sahou 写的 20 个标准库包（算术/文本/游戏/中文数字/…/表格库/配置库） |
 | `tests/` | bash 回归套件（核心一致性、网络、全栈、应用等）+ Go 单元测试与基准 |
 
 ## 构建与测试
@@ -92,7 +92,7 @@ GOOS=js GOARCH=wasm go build -o sahou.wasm ./cmd/sahouwasm   # 浏览器直跑�
 
 ## 版本
 
-当前版本 **v0.3.0**（`sahou version` 查看）；图标在 [assets/](assets/)（印章红「卅」字形，纯 SVG 路径，无字体依赖）。里程碑路线（v1 核心 → 全栈 → 应用 → 工程化）
+当前版本 **v1.1.0**（`sahou version` 查看）；图标在 [assets/](assets/)（印章红「卅」字形，纯 SVG 路径，无字体依赖）。里程碑路线（v1 核心 → 全栈 → 应用 → 工程化）
 见 [docs/README.md](docs/README.md) 的版本路线表。
 
 ## 许可证

@@ -4,4 +4,5 @@ sahou.exe~
 tests/.tmp_app/
 分发版/
 .mimosa/
+.zcode/
 __pycache__/
