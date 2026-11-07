@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"sahou/internal/errs"
 	"sahou/internal/interp"
@@ -103,6 +105,20 @@ type completionParams struct {
 		URI string `json:"uri"`
 	} `json:"textDocument"`
 	Position position `json:"position"`
+}
+
+type codeActionParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Range   rangeT `json:"range"`
+	Context struct {
+		Diagnostics []diagnostic `json:"diagnostics"`
+	} `json:"context"`
+}
+
+type stoneSourceParams struct {
+	Name string `json:"name"`
 }
 
 // completionItems 按光标前缀给补全：
@@ -263,6 +279,9 @@ func Run() {
 						"completionProvider": map[string]interface{}{
 							"triggerCharacters": []string{".", " "},
 						},
+						"hoverProvider":      true,
+						"definitionProvider": true,
+						"codeActionProvider": true,
 					},
 					"serverInfo": map[string]interface{}{
 						"name": "sahou-lsp",
@@ -314,6 +333,35 @@ func Run() {
 				result = map[string]interface{}{
 					"contents": map[string]interface{}{"kind": "markdown", "value": md},
 				}
+			}
+			writeMessage(os.Stdout, mustJSON(map[string]interface{}{
+				"jsonrpc": "2.0",
+				"id":      m.ID,
+				"result":  result,
+			}))
+		case "textDocument/definition":
+			var dp completionParams
+			_ = json.Unmarshal(m.Params, &dp)
+			writeMessage(os.Stdout, mustJSON(map[string]interface{}{
+				"jsonrpc": "2.0",
+				"id":      m.ID,
+				"result":  definitionLocation(docs[dp.TextDocument.URI], dp.TextDocument.URI, dp.Position),
+			}))
+		case "textDocument/codeAction":
+			var ap codeActionParams
+			_ = json.Unmarshal(m.Params, &ap)
+			actions := codeActions(docs[ap.TextDocument.URI], ap.TextDocument.URI, ap.Range.Start.Line, ap.Context.Diagnostics)
+			writeMessage(os.Stdout, mustJSON(map[string]interface{}{
+				"jsonrpc": "2.0",
+				"id":      m.ID,
+				"result":  actions,
+			}))
+		case "sahou/stoneSource":
+			var sp stoneSourceParams
+			_ = json.Unmarshal(m.Params, &sp)
+			var result interface{}
+			if src, ok := stonesrc.Source(sp.Name); ok {
+				result = map[string]interface{}{"source": src}
 			}
 			writeMessage(os.Stdout, mustJSON(map[string]interface{}{
 				"jsonrpc": "2.0",
@@ -478,6 +526,249 @@ func dynamicStoneMembers(pkg string) []string {
 		}
 	}
 	return nil
+}
+
+// ---------- 跳转定义与代码动作 ----------
+
+// locationMap 一个跳转目标：uri + 整行范围。
+func locationMap(uri string, line0 int) map[string]interface{} {
+	r := rangeT{Start: position{line0, 0}, End: position{line0, 1 << 20}}
+	return map[string]interface{}{"uri": uri, "range": r}
+}
+
+// definitionLocation 光标名字的跳转目标：
+//  1. 当前文档顶层函数（函数定义语句）；
+//  2. `用 "名" 引入` 的模块：本地磁盘文件优先（向上查找规则与解释器 loadModule 一致），
+//     磁盘没有而 exe 内嵌有该 stones 包时返回 sahou-stone:// 虚拟文档
+//     （内容由 sahou/stoneSource 提供，客户端注册内容提供者打开）。
+//
+// 查不到返回 nil。
+func definitionLocation(text, uri string, pos position) map[string]interface{} {
+	word := wordAt(text, pos)
+	if word == "" {
+		return nil
+	}
+	// 词法级扫描而不是完整解析：文件有语法错误（写了一半）时跳转照常可用。
+	toks, _ := lexer.Tokenize(text)
+	for i, t := range toks {
+		if t.Kind == lexer.FN && i+1 < len(toks) && toks[i+1].Kind == lexer.IDENT && toks[i+1].Text == word {
+			return locationMap(uri, toks[i+1].Line-1)
+		}
+	}
+	for i, t := range toks {
+		if t.Kind == lexer.USE && i+1 < len(toks) && toks[i+1].Kind == lexer.STRING && firstStrLit(toks[i+1]) == word {
+			if p := moduleFilePath(moduleSearchDir(uri), word); p != "" {
+				return locationMap(pathToURI(p), 0)
+			}
+			if stonesrc.Has(word) {
+				return locationMap("sahou-stone:///"+word+"/main.saho", 0)
+			}
+		}
+	}
+	return nil
+}
+
+// firstStrLit 取字符串记号里第一段字面文本（插值表达式不算）；没有则返回空串。
+func firstStrLit(tok lexer.Token) string {
+	for _, p := range tok.Str {
+		if p.Expr == "" {
+			return p.Lit
+		}
+	}
+	return ""
+}
+
+// moduleSearchDir 找模块文件的起点目录：文档所在目录；非 file URI 时退回进程工作目录。
+func moduleSearchDir(uri string) string {
+	if p := uriToPath(uri); p != "" {
+		return filepath.Dir(p)
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return dir
+}
+
+// moduleFilePath 从 dir 逐级向上找模块文件，候选顺序与解释器 loadModule 一致
+// （名.saho / 名/main.saho / stones/名.saho / stones/名/main.saho）；找不到返回空串。
+func moduleFilePath(dir, name string) string {
+	for {
+		candidates := []string{
+			filepath.Join(dir, name+".saho"),
+			filepath.Join(dir, name, "main.saho"),
+			filepath.Join(dir, "stones", name+".saho"),
+			filepath.Join(dir, "stones", name, "main.saho"),
+		}
+		for _, c := range candidates {
+			if st, err := os.Stat(c); err == nil && !st.IsDir() {
+				abs, _ := filepath.Abs(c)
+				return abs
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+func uriToPath(uri string) string {
+	u, err := url.Parse(uri)
+	if err != nil || u.Scheme != "file" {
+		return ""
+	}
+	p := u.Path
+	if strings.HasPrefix(p, "/") && len(p) > 2 && p[2] == ':' { // windows 盘符：/E:/...
+		p = p[1:]
+	}
+	return filepath.FromSlash(p)
+}
+
+func pathToURI(p string) string {
+	abs, _ := filepath.Abs(p)
+	return "file:///" + strings.TrimPrefix(filepath.ToSlash(abs), "/")
+}
+
+// codeActions 光标行的快速修复：
+//   - 诊断消息含「点号」的点号赋值 → 改用方括号（D11：点读只读）；
+//   - 行内代码有全角标点（字符串字面量里的不动，避免改变输出）→ 一键换半角。
+func codeActions(text, uri string, line int, diags []diagnostic) []map[string]interface{} {
+	out := []map[string]interface{}{}
+	lines := strings.Split(text, "\n")
+	if line < 0 || line >= len(lines) {
+		return out
+	}
+	lineText := lines[line]
+	dotDiag := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "点号") {
+			dotDiag = true
+			break
+		}
+	}
+	if dotDiag {
+		if act := dotAssignAction(uri, lineText, line); act != nil {
+			out = append(out, act)
+		}
+	}
+	if act := fullwidthAction(uri, lineText, line); act != nil {
+		out = append(out, act)
+	}
+	return out
+}
+
+// utf16Offsets 行内每个字符（rune）起始的 UTF-16 偏移，末尾多一个行尾偏移。
+// LSP 的 character 以 UTF-16 单位计，一个汉字算 1。
+func utf16Offsets(line string) []int {
+	offs := make([]int, 0, len([]rune(line))+1)
+	units := 0
+	for _, r := range line {
+		offs = append(offs, units)
+		if r >= 0x10000 {
+			units += 2
+		} else {
+			units++
+		}
+	}
+	offs = append(offs, units)
+	return offs
+}
+
+// fullwidthAction 把这一行代码里的全角标点换成半角；字符串字面量里的一律不动。
+func fullwidthAction(uri, lineText string, line int) map[string]interface{} {
+	fw := lexer.FullwidthMap()
+	offs := utf16Offsets(lineText)
+	runes := []rune(lineText)
+	var edits []map[string]interface{}
+	inStr := false
+	for i, r := range runes {
+		if r == '"' && (i == 0 || runes[i-1] != '\\') {
+			inStr = !inStr
+			continue
+		}
+		if inStr {
+			continue
+		}
+		half, ok := fw[r]
+		if !ok {
+			continue
+		}
+		edits = append(edits, map[string]interface{}{
+			"range":   rangeT{Start: position{line, offs[i]}, End: position{line, offs[i+1]}},
+			"newText": string(half),
+		})
+	}
+	if len(edits) == 0 {
+		return nil
+	}
+	return map[string]interface{}{
+		"title": "把这一行的全角标点换成半角",
+		"kind":  "quickfix",
+		"edit":  map[string]interface{}{"changes": map[string]interface{}{uri: edits}},
+	}
+}
+
+// dotAssignAction 把 字典.字段 = 值 改写成 字典["字段"] = 值（点号赋值是编译期错误，D11）。
+func dotAssignAction(uri, lineText string, line int) map[string]interface{} {
+	runes := []rune(lineText)
+	eq := -1
+	inStr := false
+	for i, r := range runes {
+		if r == '"' && (i == 0 || runes[i-1] != '\\') {
+			inStr = !inStr
+			continue
+		}
+		if !inStr && r == '=' {
+			if i+1 < len(runes) && runes[i+1] == '=' { // == 是比较，不是赋值
+				continue
+			}
+			eq = i
+			break
+		}
+	}
+	if eq <= 0 {
+		return nil
+	}
+	trimmed := strings.TrimRight(string(runes[:eq]), " \t")
+	parts := strings.Split(trimmed, ".")
+	if len(parts) < 2 {
+		return nil
+	}
+	for _, p := range parts {
+		if !isIdentWord(strings.TrimSpace(p)) {
+			return nil
+		}
+	}
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(parts[0]))
+	for _, p := range parts[1:] {
+		b.WriteString("[\"" + strings.TrimSpace(p) + "\"]")
+	}
+	lead := len(trimmed) - len(strings.TrimLeft(trimmed, " \t"))
+	offs := utf16Offsets(lineText)
+	return map[string]interface{}{
+		"title": "点号只能读取——赋值改用方括号",
+		"kind":  "quickfix",
+		"edit": map[string]interface{}{"changes": map[string]interface{}{uri: []map[string]interface{}{{
+			"range":   rangeT{Start: position{line, offs[lead]}, End: position{line, offs[eq]}},
+			"newText": b.String(),
+		}}}},
+	}
+}
+
+// isIdentWord 是否为合法标识符文本（字母/数字/下划线，含中文）。
+func isIdentWord(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------- JSON-RPC 帧 ----------

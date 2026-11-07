@@ -65,7 +65,7 @@ go build -o sahou.exe .          # 构建（需 Go 1.23+）
 | `internal/transpile/` | sahou → JavaScript 转译器 |
 | `internal/lsp/` `internal/format/` | 语言服务（诊断+补全）与格式化 |
 | `examples/` | 可直接运行的示例（入门、留言板、桌面/手机/原生窗口应用） |
-| `stones/` | 纯 sahou 写的 20 个标准库包（算术/文本/游戏/中文数字/…/表格库/配置库） |
+| `stones/` | 纯 sahou 写的 21 个标准库包（算术/文本/游戏/中文数字/…/表格库/配置库/CSV库） |
 | `tests/` | bash 回归套件（核心一致性、网络、全栈、应用等）+ Go 单元测试与基准 |
 
 ## 构建与测试

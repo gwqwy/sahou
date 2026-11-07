@@ -19,6 +19,10 @@
       background: linear-gradient(135deg, var(--brand), var(--brand2)); color: #fff; cursor: pointer;
     }
     button.run:disabled { opacity: .5; cursor: wait; }
+    button.ghost {
+      font: inherit; padding: 8px 14px; border-radius: 9px; border: 1px solid #334155;
+      background: transparent; color: #94a3b8; cursor: pointer;
+    }
     .work { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px 20px 20px; min-height: 0; }
     .pane { display: flex; flex-direction: column; min-height: 0; background:#1e293b; border-radius: 12px; overflow: hidden; }
     .pane h2 { font-size: 13px; color: #94a3b8; padding: 8px 14px; font-weight: 500; }
@@ -43,6 +47,7 @@
       <div class="sub">左边写 卅，点运行，右边看输出 —— 卅.wasm 在你的浏览器里直接解释执行</div>
     </div>
     <div class="spacer"></div>
+    <button class="ghost" id="分享">🔗 分享</button>
     <button class="run" id="运行" disabled>▶ 运行（Ctrl+Enter）</button>
   </header>
 
@@ -56,7 +61,7 @@
       <pre id="输出">// 点击“运行”查看结果</pre>
     </div>
   </div>
-  <div class="foot">每次运行都是全新解释器 · 支持 管道 -> / 格子 / 尝试接住 / 30 个内置函数 · 无法访问浏览器页面元素（那需要 页面 模块 + 网页文件）</div>
+  <div class="foot">每次运行都是全新解释器 · 支持 管道 -> / 格子 / 尝试接住 / 30 个内置函数 · 无法访问浏览器页面元素（那需要 页面 模块 + 网页文件）<span id="来源行"></span></div>
 
   <script src="wasm_exec.js"></script>
   <script>
@@ -82,18 +87,46 @@ print("你好，{1 + 2}！")
     const 代码框 = document.getElementById("代码");
     const 输出框 = document.getElementById("输出");
     const 运行钮 = document.getElementById("运行");
+    const 来源行 = document.getElementById("来源行");
     代码框.value = 默认代码;
 
     let ready = false;
 
+    // URL 参数：?code=（URL编码的源码）填充编辑框；&run=1 就绪后自动运行；
+    // ?wasm=<URL> 从指定地址加载运行时（例如 Release 附件
+    // https://github.com/gwqwy/sahou/releases/download/vX.Y.Z/sahou.wasm），固定教学用版本。
+    const 参数 = new URLSearchParams(location.search);
+    const wasm地址 = 参数.get("wasm") || "sahou.wasm";
+    if (wasm地址 !== "sahou.wasm") {
+      来源行.textContent = " · 运行时来源：" + wasm地址;
+    }
+
     async function 启动() {
-      const bytes = await (await fetch("sahou.wasm")).arrayBuffer();
+      const bytes = await (await fetch(wasm地址)).arrayBuffer();
       const go = new Go();
       const r = await WebAssembly.instantiate(bytes, go.importObject);
       go.run(r.instance);
       ready = true;
       运行钮.disabled = false;
       运行钮.textContent = "▶ 运行（Ctrl+Enter）";
+      const 代 = 参数.get("code");
+      if (代 !== null) {
+        代码框.value = 代;
+      }
+      if (参数.get("run") === "1") {
+        运行();
+      }
+    }
+
+    function 分享() {
+      let 链接 = location.origin + location.pathname + "?code=" + encodeURIComponent(代码框.value);
+      if (wasm地址 !== "sahou.wasm") {
+        链接 += "&wasm=" + encodeURIComponent(wasm地址);
+      }
+      navigator.clipboard.writeText(链接).then(() => {
+        分享钮.textContent = "✓ 已复制";
+        setTimeout(() => { 分享钮.textContent = "🔗 分享"; }, 1500);
+      });
     }
 
     function 运行() {
@@ -108,6 +141,8 @@ print("你好，{1 + 2}！")
       输出框.innerHTML = html;
     }
 
+    const 分享钮 = document.getElementById("分享");
+    分享钮.addEventListener("click", 分享);
     运行钮.addEventListener("click", 运行);
     document.addEventListener("keydown", (e) => {
       if (e.ctrlKey && e.key === "Enter") { e.preventDefault(); 运行(); }

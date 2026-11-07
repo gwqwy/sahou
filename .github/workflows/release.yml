@@ -101,10 +101,40 @@ jobs:
           name: ${{ matrix.bin }}
           path: ${{ matrix.bin }}
 
+  # wasm 作业：构建浏览器运行时并作为 Release 附件——
+  # 在线体验页可用 ?wasm=https://github.com/<owner>/<repo>/releases/download/<tag>/sahou.wasm 固定教学版本。
+  wasm:
+    name: 构建 wasm 运行时
+    needs: tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+
+      - name: 生成 sahou.wasm
+        env:
+          GOOS: js
+          GOARCH: wasm
+        run: go build -trimpath -ldflags "-s -w" -o sahou.wasm ./cmd/sahouwasm
+
+      - name: 上传 wasm 运行时（sahou.wasm + wasm_exec.js 成对）
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-runtime
+          path: |
+            sahou.wasm
+            wasm_exec.js
+
   # 发布作业：三平台产物到齐后，统一发一个 Release（Windows 的 gh 之外这里用 Linux 跑）。
   publish:
     name: 整理发布物 + 上传 Releases
-    needs: [tag, build]
+    needs: [tag, build, wasm]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

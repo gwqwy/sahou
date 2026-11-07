@@ -334,7 +334,7 @@ function readFrame() {
   const length = Number(match[1]);
   if (lspBuffer.length < headEnd + 4 + length) return null;
   const body = lspBuffer.slice(headEnd + 4, headEnd + 4 + length);
-  lspBuffer = lspBuffer.slice(headEnd + 4, headEnd + 4 + length);
+  lspBuffer = lspBuffer.slice(headEnd + 4 + length);
   return body;
 }
 
@@ -405,8 +405,81 @@ function activate(context) {
 }
 
 function registerLanguageFeatures(context) {
-  if (!completionEnabled()) return;
   const selector = { language: "sahou" };
+
+  // 内嵌 stones 包的虚拟文档：sahou-stone:///包名/main.saho（内容由 sahou/stoneSource 提供）
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider("sahou-stone", {
+      async provideTextDocumentContent(uri) {
+        const name = decodeURIComponent((uri.path.split("/")[1] || ""));
+        if (!name) return "// 无法解析包名：" + uri.toString();
+        const res = await serverRequest("sahou/stoneSource", { name });
+        if (res && typeof res.source === "string") {
+          return res.source;
+        }
+        return "// 无法取得内嵌源码（sahou lsp 未响应或包不存在）。";
+      }
+    })
+  );
+
+  // 跳转定义：本文件函数 / 用 "名" 引入 的模块文件 / 内嵌 stones 虚拟文档
+  context.subscriptions.push(
+    vscode.languages.registerDefinitionProvider(selector, {
+      async provideDefinition(doc, pos) {
+        const res = await serverRequest("textDocument/definition", {
+          textDocument: { uri: doc.uri.toString() },
+          position: { line: pos.line, character: pos.character },
+        });
+        if (!res || !res.uri) return null;
+        return new vscode.Location(
+          vscode.Uri.parse(res.uri),
+          new vscode.Range(res.range.start.line, res.range.start.character, res.range.end.line, res.range.end.character)
+        );
+      }
+    })
+  );
+
+  // 快速修复：点号赋值改方括号、全角标点换半角（由服务端按行给出）
+  context.subscriptions.push(
+    vscode.languages.registerCodeActionsProvider(selector, {
+      async provideCodeActions(doc, range, ctx) {
+        const res = await serverRequest("textDocument/codeAction", {
+          textDocument: { uri: doc.uri.toString() },
+          range: {
+            start: { line: range.start.line, character: range.start.character },
+            end: { line: range.end.line, character: range.end.character },
+          },
+          context: {
+            diagnostics: (ctx.diagnostics || []).map((d) => ({
+              range: d.range,
+              severity: d.severity,
+              source: d.source,
+              message: d.message,
+            })),
+          },
+        });
+        if (!Array.isArray(res)) return [];
+        return res.map((a) => {
+          const action = new vscode.CodeAction(a.title, vscode.CodeActionKind.QuickFix);
+          const edit = new vscode.WorkspaceEdit();
+          const changes = a.edit && a.edit.changes ? a.edit.changes : {};
+          for (const [uri, edits] of Object.entries(changes)) {
+            for (const e of edits) {
+              edit.replace(
+                vscode.Uri.parse(uri),
+                new vscode.Range(e.range.start.line, e.range.start.character, e.range.end.line, e.range.end.character),
+                e.newText
+              );
+            }
+          }
+          action.edit = edit;
+          return action;
+        });
+      }
+    })
+  );
+
+  if (!completionEnabled()) return;
   context.subscriptions.push(
     vscode.languages.registerCompletionItemProvider(
       selector,
