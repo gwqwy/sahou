@@ -263,6 +263,8 @@ func Run() {
 						"completionProvider": map[string]interface{}{
 							"triggerCharacters": []string{".", " "},
 						},
+						"definitionProvider": true,
+						"renameProvider":     true,
 					},
 					"serverInfo": map[string]interface{}{
 						"name": "sahou-lsp",
@@ -319,6 +321,30 @@ func Run() {
 				"jsonrpc": "2.0",
 				"id":      m.ID,
 				"result":  result,
+			}))
+		case "textDocument/definition":
+			var dp completionParams
+			_ = json.Unmarshal(m.Params, &dp)
+			uri := dp.TextDocument.URI
+			var result interface{}
+			if _, loc, ok := definitionTarget(docs[uri], dp.Position); ok {
+				result = location{URI: uri, Range: loc}
+			}
+			writeMessage(os.Stdout, mustJSON(map[string]interface{}{
+				"jsonrpc": "2.0", "id": m.ID, "result": result,
+			}))
+		case "textDocument/rename":
+			var rp renameParams
+			_ = json.Unmarshal(m.Params, &rp)
+			uri := rp.TextDocument.URI
+			var result interface{}
+			if _, edits, ok := renamePlan(docs[uri], rp.Position, rp.NewName); ok {
+				result = map[string]interface{}{
+					"changes": map[string]interface{}{uri: edits},
+				}
+			}
+			writeMessage(os.Stdout, mustJSON(map[string]interface{}{
+				"jsonrpc": "2.0", "id": m.ID, "result": result,
 			}))
 		case "shutdown":
 			writeMessage(os.Stdout, mustJSON(map[string]interface{}{
@@ -478,6 +504,255 @@ func dynamicStoneMembers(pkg string) []string {
 		}
 	}
 	return nil
+}
+
+// ---------- 跳转定义 / 重命名 ----------
+
+type location struct {
+	URI   string `json:"uri"`
+	Range rangeT `json:"range"`
+}
+
+type renameParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Position position `json:"position"`
+	NewName  string   `json:"newName"`
+}
+
+type textEdit struct {
+	Range   rangeT `json:"range"`
+	NewText string `json:"newText"`
+}
+
+func isWordRune(r rune) bool {
+	return r == '_' || (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') ||
+		(r >= 'A' && r <= 'Z') || r > 127
+}
+
+// utf16Of 统计前 n 个 rune 的 UTF-16 单位数（LSP character 口径）。
+func utf16Of(runes []rune) int {
+	units := 0
+	for _, r := range runes {
+		if r >= 0x10000 {
+			units += 2
+		} else {
+			units++
+		}
+	}
+	return units
+}
+
+type defItem struct {
+	name string
+	loc  rangeT
+}
+
+// stripLineComment 去掉行内注释（# 之后，引号里的 # 不算）。
+func stripLineComment(line string) string {
+	inQuote := false
+	for i, r := range line {
+		if r == '"' {
+			inQuote = !inQuote
+		}
+		if r == '#' && !inQuote {
+			return line[:i]
+		}
+	}
+	return line
+}
+
+// firstWord 取去掉首尾空白后的第一个完整单词（中文/字母/数字/下划线）。
+func firstWord(s string) string {
+	rs := []rune(strings.TrimSpace(s))
+	i := 0
+	for i < len(rs) && !isWordRune(rs[i]) {
+		i++
+	}
+	start := i
+	for i < len(rs) && isWordRune(rs[i]) {
+		i++
+	}
+	return string(rs[start:i])
+}
+
+// isPlainWord 整串都是单词字符（用于判断赋值左值是一个单纯的名字）。
+func isPlainWord(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !isWordRune(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// findAssign 找行内「赋值等号」的字节下标（排除 == != >= <= 与箭头 ->）；找不到返回 -1。
+func findAssign(line string) int {
+	for i := 0; i < len(line); i++ {
+		if line[i] != '=' {
+			continue
+		}
+		if i+1 < len(line) && line[i+1] == '=' {
+			i++
+			continue
+		}
+		if i > 0 {
+			switch line[i-1] {
+			case '=', '!', '>', '<', '-':
+				continue
+			}
+		}
+		return i
+	}
+	return -1
+}
+
+// definitionsInFile 扫描全文的用户级定义（v1 文本级、同文件、不区分作用域）：
+//
+//	函数/func 名字(   → 函数定义
+//	设 名字 为        → 变量定义
+//	名字 =            → 赋值定义
+//
+// 返回按行序的定义（列为 UTF-16 单位，0 起始行号）。
+func definitionsInFile(text string) []defItem {
+	var out []defItem
+	lines := strings.Split(text, "\n")
+	for li, raw := range lines {
+		line := stripLineComment(raw)
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		name := ""
+		switch {
+		case strings.HasPrefix(trimmed, "函数 "), strings.HasPrefix(trimmed, "func "):
+			prefix := "函数 "
+			if strings.HasPrefix(trimmed, "func ") {
+				prefix = "func "
+			}
+			name = firstWord(strings.TrimPrefix(trimmed, prefix))
+		case strings.HasPrefix(trimmed, "设 "):
+			name = firstWord(strings.TrimPrefix(trimmed, "设 "))
+		default:
+			if eq := findAssign(line); eq >= 0 {
+				left := strings.TrimSpace(line[:eq])
+				if isPlainWord(left) {
+					name = left
+				}
+			}
+		}
+		if name == "" || !isPlainWord(name) {
+			continue
+		}
+		// 定义名列的 UTF-16 起点：在该行里找 name 的首次整词出现
+		col := utf16Of([]rune(line[:strings.Index(line, name)]))
+		out = append(out, defItem{name, rangeT{
+			Start: position{li, col}, End: position{li, col + utf16Of([]rune(name))}}})
+	}
+	return out
+}
+
+// wordRangeAt2 取位置上的完整单词及其范围（UTF-16 列，0 起始行）。
+func wordRangeAt2(text string, pos position) (string, rangeT, bool) {
+	lines := strings.Split(text, "\n")
+	if pos.Line < 0 || pos.Line >= len(lines) {
+		return "", rangeT{}, false
+	}
+	runes := []rune(lines[pos.Line])
+	// UTF-16 位置 → rune 下标
+	idx := len(runes)
+	units := 0
+	for i, r := range runes {
+		if units >= pos.Character {
+			idx = i
+			break
+		}
+		units += 1
+		if r >= 0x10000 {
+			units++
+		}
+	}
+	start, end := idx, idx
+	for start > 0 && isWordRune(runes[start-1]) {
+		start--
+	}
+	for end < len(runes) && isWordRune(runes[end]) {
+		end++
+	}
+	if start == end {
+		return "", rangeT{}, false
+	}
+	loc := rangeT{Start: position{pos.Line, utf16Of(runes[:start])},
+		End: position{pos.Line, utf16Of(runes[:end])}}
+	return string(runes[start:end]), loc, true
+}
+
+// definitionTarget 光标所在名字及其定义位置：优先取光标之前最近的一个定义，
+// 之前没有则取第一个（观感上支持「先调用后定义」）。查不到返回 false。
+func definitionTarget(text string, pos position) (string, rangeT, bool) {
+	name, _, ok := wordRangeAt2(text, pos)
+	if !ok {
+		return "", rangeT{}, false
+	}
+	var first, before rangeT
+	haveFirst, haveBefore := false, false
+	for _, d := range definitionsInFile(text) {
+		if d.name != name {
+			continue
+		}
+		if !haveFirst {
+			first, haveFirst = d.loc, true
+		}
+		if d.loc.Start.Line <= pos.Line {
+			before, haveBefore = d.loc, true
+		}
+	}
+	if haveBefore {
+		return name, before, true
+	}
+	if haveFirst {
+		return name, first, true
+	}
+	return "", rangeT{}, false
+}
+
+// renamePlan 生成重命名计划：定义位置 + 该名字在全文所有整词出现处的编辑列表
+// （与定义查找同一口径：同文件、不区分作用域）。
+func renamePlan(text string, pos position, newName string) (rangeT, []textEdit, bool) {
+	name, defRange, ok := definitionTarget(text, pos)
+	if !ok || newName == "" || newName == name || !isPlainWord(newName) {
+		return rangeT{}, nil, false
+	}
+	edits := []textEdit{}
+	lines := strings.Split(text, "\n")
+	for li, line := range lines {
+		runes := []rune(line)
+		i := 0
+		for i < len(runes) {
+			if !isWordRune(runes[i]) {
+				i++
+				continue
+			}
+			start := i
+			for i < len(runes) && isWordRune(runes[i]) {
+				i++
+			}
+			if string(runes[start:i]) == name {
+				edits = append(edits, textEdit{
+					Range:   rangeT{Start: position{li, utf16Of(runes[:start])}, End: position{li, utf16Of(runes[:i])}},
+					NewText: newName,
+				})
+			}
+		}
+	}
+	if len(edits) == 0 {
+		return rangeT{}, nil, false
+	}
+	return defRange, edits, true
 }
 
 // ---------- JSON-RPC 帧 ----------

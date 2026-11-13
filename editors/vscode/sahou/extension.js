@@ -440,6 +440,45 @@ function registerLanguageFeatures(context) {
       }
     })
   );
+  // 跳转定义（同文件：函数声明 / 设 为 / 赋值；服务端未就绪时静默无跳转）
+  context.subscriptions.push(
+    vscode.languages.registerDefinitionProvider(selector, {
+      async provideDefinition(doc, pos) {
+        const res = await serverRequest("textDocument/definition", {
+          textDocument: { uri: doc.uri.toString() },
+          position: { line: pos.line, character: pos.character },
+        });
+        if (!res || !res.range) return null;
+        const target = res.uri ? vscode.Uri.parse(res.uri) : doc.uri;
+        return new vscode.Location(target, new vscode.Range(
+          res.range.start.line, res.range.start.character,
+          res.range.end.line, res.range.end.character));
+      }
+    })
+  );
+  // 重命名（同文件整词替换；服务端拒绝时返回 undefined，VS Code 提示无法重命名）
+  context.subscriptions.push(
+    vscode.languages.registerRenameProvider(selector, {
+      async provideRenameEdits(doc, pos, newName) {
+        const res = await serverRequest("textDocument/rename", {
+          textDocument: { uri: doc.uri.toString() },
+          position: { line: pos.line, character: pos.character },
+          newName,
+        });
+        if (!res || !res.changes) return undefined;
+        const edit = new vscode.WorkspaceEdit();
+        for (const [uri, edits] of Object.entries(res.changes)) {
+          const target = vscode.Uri.parse(uri);
+          for (const e of edits) {
+            edit.replace(target, new vscode.Range(
+              e.range.start.line, e.range.start.character,
+              e.range.end.line, e.range.end.character), e.newText);
+          }
+        }
+        return edit;
+      }
+    })
+  );
 }
 
 function stopLsp() {

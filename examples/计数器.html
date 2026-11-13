@@ -3,6 +3,19 @@
 <head>
   <meta charset="utf-8">
   <title>计数器</title>
+  <style>
+    body { font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+           background: #f1f5f9; display: flex; flex-direction: column; align-items: center;
+           justify-content: center; min-height: 100vh; margin: 0; gap: 16px; }
+    p { color: #334155; font-size: 17px; margin: 0; }
+    button { font: inherit; padding: 9px 22px; border-radius: 10px; cursor: pointer;
+             border: 1px solid #cbd5e1; background: #fff; color: #334155;
+             transition: transform .08s, background .15s, box-shadow .15s; }
+    button:hover { background: #eef2ff; border-color: #4f46e5; color: #4f46e5;
+                   box-shadow: 0 3px 12px rgba(79,70,229,.18); }
+    button:active { transform: scale(.95); }
+    button:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
+  </style>
 </head>
 <body>
   <p id="显示">还没开始</p>
@@ -10,3 +23,4 @@
   <script src="计数器.js"></script>
 </body>
 </html>
+

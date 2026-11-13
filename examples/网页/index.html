@@ -74,6 +74,20 @@
              display: flex; align-items: center; justify-content: center; color: #334155; }
     footer { text-align: center; color: var(--muted); font-size: 13px; padding: 0 0 36px; }
     footer code { background: #e2e8f0; padding: 2px 7px; border-radius: 6px; }
+    /* ---------- 交互打磨 ---------- */
+    .card { transition: transform .18s ease, box-shadow .18s ease; }
+    .card:hover { transform: translateY(-3px); box-shadow: 0 10px 28px rgba(15,23,42,.12); }
+    button:focus-visible, input:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+    button[disabled] { opacity: .45; cursor: not-allowed; }
+    li { animation: rowIn .18s ease; transition: background .15s, border-color .15s; }
+    li:hover { background: #eef2ff; border-color: #c7d2fe; }
+    @keyframes rowIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-thumb { background: #c8cddc; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #a5adc4; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
   </style>
 </head>
 <body>

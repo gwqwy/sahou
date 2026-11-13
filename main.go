@@ -637,7 +637,16 @@ func stonesInstall(args []string) {
 	}
 	src := args[0]
 	if strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://") {
+		// zip 直链按远程压缩包安装；git 仓库地址走 git clone
+		if strings.HasSuffix(src, ".git") {
+			installGitRepo(src)
+			return
+		}
 		installRemoteZip(src)
+		return
+	}
+	if strings.HasPrefix(src, "git@") {
+		installGitRepo(src)
 		return
 	}
 	// exe 自带的标准库包：按名字直接取出（离线安装，不需要网络与本地路径）
@@ -739,6 +748,26 @@ func listStones() {
 			fmt.Printf("  %s%s\n", n, local)
 		}
 	}
+}
+
+// installGitRepo `sahou 装 <git 地址>`：git clone --depth 1 到临时目录，再按本地目录安装
+// （复用 stonesInstall 的复制与 stones.yml 登记；本机需要已安装 git）。
+func installGitRepo(url string) {
+	tmp, err := os.MkdirTemp("", "卅-git-*")
+	if err != nil {
+		fmt.Println("建不了临时目录：", err)
+		os.Exit(2)
+	}
+	defer os.RemoveAll(tmp)
+	dst := filepath.Join(tmp, "pkg")
+	fmt.Printf("正在克隆 %s …\n", url)
+	clone := exec.Command("git", "clone", "--depth", "1", url, dst)
+	clone.Stdout, clone.Stderr = os.Stdout, os.Stderr
+	if err := clone.Run(); err != nil {
+		fmt.Println("git clone 失败（本机需要已安装 git）：", err)
+		os.Exit(2)
+	}
+	stonesInstall([]string{dst})
 }
 
 // installRemoteZip `sahou 装 https://…/包名.zip`：下载 zip 并解压进 stones/包名。
