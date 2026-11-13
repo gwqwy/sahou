@@ -1,4 +1,4 @@
-# 卅语言 CI：Windows 全套回归 + Linux 构建检查。
+# 卅语言 CI：Windows 全套回归 + Linux 构建/单测/冒烟 + gofmt 门禁。
 # 测试脚本与开发机同一套（tests/*.sh，windows-latest 的 Git Bash 原样可跑；
 # wasm 测试需要 node，runner 自带）。
 name: CI
@@ -10,6 +10,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  # 格式门禁：gofmt 不过直接红，避免格式噪音混进功能提交。
+  format:
+    name: gofmt 门禁
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+
+      - name: gofmt 检查（gofmt -l 必须为空）
+        run: |
+          UNFORMATTED=$(gofmt -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "::error::以下文件不符合 gofmt，请先 gofmt -w："
+            echo "$UNFORMATTED"
+            exit 1
+          fi
+
   windows-full:
     name: Windows · 构建 + 全套回归
     runs-on: windows-latest
@@ -52,7 +73,7 @@ jobs:
         shell: bash
         run: bash tests/wasm.sh
 
-      - name: 上传成品（exe 单文件自带十四包与 wasm 运行时）
+      - name: 上传成品（exe 单文件自带全部 stones 包与 wasm 运行时）
         uses: actions/upload-artifact@v4
         with:
           name: sahou-windows
@@ -60,10 +81,12 @@ jobs:
             sahou.exe
             sahou.wasm
 
+  # Linux 不只编译：单元测试 + 解释器冒烟也跑起来，为 Linux 发版兜底
+  # （tests/*.sh 全套挪过来还需先验证可移植性，逐步迁）。
   linux-build:
-    name: Linux · 构建检查
+    name: Linux · 构建 + 单测 + 冒烟
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -79,6 +102,18 @@ jobs:
         run: go build -o sahou.wasm ./cmd/sahouwasm
 
       # 原生窗口（WebView2）只在 Windows 编译，其余代码跨平台：
-      # 这里验证 Linux 下全部包可编译，为后续 Linux 发布做准备。
-      - name: 编译全部包
-        run: go build ./...
+      # 这里验证 Linux 下全部包可编译并产出 Linux 版可执行文件。
+      - name: 编译全部包并构建 Linux 版
+        run: |
+          go build ./...
+          go build -o sahou-linux .
+
+      - name: 解释器单元测试
+        run: go test ./internal/...
+
+      - name: 解释器冒烟（跑入门演示 + stones 清单）
+        run: |
+          ./sahou-linux run examples/入门演示.saho > /dev/null
+          ./sahou-linux stones | grep -q 时长库
+          ./sahou-linux stones | grep -q 表格库
+          echo "Linux 冒烟通过"

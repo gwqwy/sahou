@@ -405,7 +405,7 @@ func (p *Parser) letStmt() (Stmt, *errs.Error) {
 	return &LetStmt{Target: target, Value: val, Line: line}, nil
 }
 
-// lvalue 解析赋值目标：名字、名字[...]、名字.字段 的链。
+// lvalue 解析赋值目标：名字、名字[...] 的链；点号是只读语法（D11），赋值目标不允许点号。
 func (p *Parser) lvalue() (Expr, *errs.Error) {
 	tok := p.next() // IDENT（调用方已检查）
 	x := Expr(&Ident{Name: tok.Text, Line: tok.Line})
@@ -424,15 +424,11 @@ func (p *Parser) lvalue() (Expr, *errs.Error) {
 			p.next()
 			x = &Index{X: x, Idx: idx, Line: line}
 		case lexer.DOT:
+			// D11：点读是只读语法糖，赋值必须走方括号
 			line := p.cur().Line
-			p.next()
-			if !p.at(lexer.IDENT) {
-				return nil, errs.SyntaxHint(
-					"点号 . 后面要跟字段名。", "expected a field name after '.'.",
-					"取字典字段写 动物.名字；要按文本键取，写 动物[\"名字\"]。", line)
-			}
-			name := p.next()
-			x = &Member{X: x, Name: name.Text, Line: line}
+			return nil, errs.SyntaxHint(
+				"点号 . 只能读取成员，不能用来赋值。", "'.' can only read a member, not assign to one.",
+				"给字典字段赋值请用方括号：小猫[\"名字\"] = \"咪咪\"。", line)
 		default:
 			return x, nil
 		}
@@ -879,12 +875,17 @@ func (p *Parser) exprStmt() (Stmt, *errs.Error) {
 			return nil, e
 		}
 		switch x.(type) {
-		case *Ident, *Index, *Member:
+		case *Ident, *Index:
 			return &LetStmt{Target: x, Value: val, Line: line}, nil
+		case *Member:
+			// D11：点读只读，赋值必须走方括号
+			return nil, errs.SyntaxHint(
+				"点号 . 只能读取成员，不能用来赋值。", "'.' can only read a member, not assign to one.",
+				"给字典字段赋值请用方括号：小猫[\"名字\"] = \"咪咪\"。", line)
 		default:
 			return nil, errs.SyntaxHint(
 				"= 的左边只能是要赋值的目标：变量、列表元素或字典字段。", "the left side of = must be a variable, a list element, or a dict field.",
-				"例如：总分 = 0、名单[0] = 新值、小猫.名字 = 咪咪。", line)
+				"例如：总分 = 0、名单[0] = 新值。", line)
 		}
 	}
 	return &ExprStmt{X: x, Line: line}, nil

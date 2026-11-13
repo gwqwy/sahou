@@ -495,14 +495,10 @@ func (in *Interp) assignTo(target parser.Expr, v Value, env *Env, line int) {
 		}
 
 	case *parser.Member:
-		container := in.eval(t.X, env)
-		if d, ok := container.(*Dict); ok {
-			d.SetNew("s:"+t.Name, v)
-			return
-		}
+		// D11：点读只读，赋值必须走方括号；正常会被解析器拦截，这里是防御
 		panic(errorSig{errs.RuntimeHint(
-			TypeName(container)+" 没有可以赋值的字段。", TypeName(container)+" has no settable fields.",
-			"只有字典支持 字典.字段 = 值。", line)})
+			"点号 . 只能读取成员，不能用来赋值。", "'.' can only read a member, not assign to one.",
+			"给字典字段赋值请用方括号：小猫[\"名字\"] = \"咪咪\"。", line)})
 	}
 }
 

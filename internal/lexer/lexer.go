@@ -103,6 +103,15 @@ var fullwidth = map[rune]rune{
 	'　': ' ',
 }
 
+// FullwidthMap 全角→半角映射的只读副本（LSP 全角整理等工具用；改动不回写词法器）。
+func FullwidthMap() map[rune]rune {
+	out := make(map[rune]rune, len(fullwidth))
+	for k, v := range fullwidth {
+		out[k] = v
+	}
+	return out
+}
+
 type Lexer struct {
 	runes []rune
 	pos   int

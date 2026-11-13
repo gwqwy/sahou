@@ -5,9 +5,9 @@
 # 用法：python editors/tools/genicon.py
 #   生成 editors/vscode/sahou/icons/sahou-128.png 与 sahou-256.png（VS Code 市场要求 PNG ≥128）。
 import math
-import os
 import struct
 import zlib
+from pathlib import Path
 
 SS = 4  # 每像素采样边长（超采样抗锯齿）
 
@@ -139,6 +139,11 @@ def render(size):
 
 
 def write_png(path, size, rows):
+    # 输出位置只允许在扩展的 icons/ 目录里（本工具只服务这个固定用途，越界直接拒绝）
+    icons = (Path(__file__).resolve().parents[1] / "vscode" / "sahou" / "icons").resolve()
+    validated = Path(path).resolve()
+    if not validated.is_relative_to(icons):
+        raise ValueError(f"图标输出路径越界（只允许写到 {icons}）：{path}")
     raw = b"".join(b"\x00" + row for row in rows)  # 每行前置 filter 0
     chunk = struct.pack(">I", size) + struct.pack(">I", size) + bytes([8, 6, 0, 0, 0])
 
@@ -153,19 +158,16 @@ def write_png(path, size, rows):
            + piece(b"IHDR", chunk)
            + piece(b"IDAT", zlib.compress(raw, 9))
            + piece(b"IEND", b""))
-    with open(path, "wb") as f:
-        f.write(png)
+    validated.write_bytes(png)  # 只写通过包含性校验的规范化路径
 
 
 def main():
-    here = os.path.dirname(os.path.abspath(__file__))
-    editors_dir = os.path.dirname(here)  # editors/
-    out_dir = os.path.join(editors_dir, "vscode", "sahou", "icons")
+    icons = (Path(__file__).resolve().parents[1] / "vscode" / "sahou" / "icons").resolve()
     for size in (128, 256):
         rows = render(size)
-        path = os.path.join(out_dir, "sahou-%d.png" % size)
+        path = icons / f"sahou-{size}.png"
         write_png(path, size, rows)
-        print("生成", path, "(%d×%d)" % (size, size))
+        print("生成", path, f"({size}×{size})")
 
 
 if __name__ == "__main__":
